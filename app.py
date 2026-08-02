@@ -33,7 +33,7 @@ def _master(sid):
     lines=["#EXTM3U"]
     for q in QUALITIES:
         if (sdir/f"{q}.m3u8").exists():
-            lines.append(f"#EXT-X-STREAM-INF:BANDWIDTH={bw[q]},RESOLUTION={rs[q]},NAME=\"{q}\"")
+            lines.append(f'#EXT-X-STREAM-INF:BANDWIDTH={bw[q]},RESOLUTION={rs[q]},NAME="{q}"')
             lines.append(f"{q}.m3u8")
     if len(lines)>1:(sdir/"master.m3u8").write_text("\n".join(lines)+"\n",encoding="utf-8")
 
@@ -181,6 +181,10 @@ def _msg(data):
         chat_history.setdefault(sid,[]).append(msg);chat_history[sid]=chat_history[sid][-300:]
         server_stats["total_messages"]+=1
     emit("new_chat_msg",msg,to=sid)
+
+# ── Entrypoint gunicorn : app:app ──
+# gunicorn importe ce module et utilise la variable "app"
+# PAS besoin de wsgi.py
 
 if __name__=="__main__":
     port=int(os.environ.get("PORT",5000))

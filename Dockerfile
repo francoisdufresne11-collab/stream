@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# FIX: libgl1-mesa-glx supprime sur Debian trixie -> utiliser libgl1
+# libgl1-mesa-glx renomme en libgl1 sur Debian trixie
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libgl1 \
@@ -17,4 +17,6 @@ RUN mkdir -p streams uploads static/sounds
 ENV PORT=10000
 EXPOSE 10000
 
-CMD gunicorn -w 1 --threads 100 -b 0.0.0.0:$PORT --timeout 300 --keep-alive 75 --log-level info --access-logfile - --error-logfile - wsgi:app
+# FIX: app:app au lieu de wsgi:app
+# gunicorn charge directement le module app.py et utilise la variable app
+CMD gunicorn -w 1 --threads 100 -b 0.0.0.0:$PORT --timeout 300 --keep-alive 75 --log-level info --access-logfile - --error-logfile - app:app
