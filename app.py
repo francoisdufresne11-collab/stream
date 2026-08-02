@@ -20,7 +20,6 @@ stream_viewers={}
 chat_history={}
 server_stats={"total_streams":0,"total_messages":0,"started":time.time()}
 _lock=threading.Lock()
-
 QUALITIES={"1080p":{"res":"1920x1080","vb":"5000k","ab":"192k"},"720p":{"res":"1280x720","vb":"2500k","ab":"128k"},"480p":{"res":"854x480","vb":"1200k","ab":"96k"},"360p":{"res":"640x360","vb":"600k","ab":"64k"}}
 
 def _uptime():
@@ -89,6 +88,7 @@ def admin_kick(sid):
 
 @app.route("/api/streams")
 def api_streams():return jsonify(list(active_streams.values()))
+
 @app.route("/api/stats")
 def api_stats():
     return jsonify({"streams":len(active_streams),"viewers":sum(len(v) for v in stream_viewers.values()),
@@ -184,7 +184,6 @@ def _msg(data):
 
 if __name__=="__main__":
     port=int(os.environ.get("PORT",5000))
-    print(f"StreamCaster http://0.0.0.0:{port}")
-    print(f"Python {sys.version.split()[0]} / Admin http://0.0.0.0:{port}/admin")
+    print(f"StreamCaster http://0.0.0.0:{port}  Python {sys.version.split()[0]}")
     socketio.run(app,host="0.0.0.0",port=port,debug=False,use_reloader=False,
         log_output=True,allow_unsafe_werkzeug=True)
