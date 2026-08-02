@@ -56,9 +56,13 @@ def _ts(v):
     except:return "?"
 
 @app.errorhandler(404)
-def e404(e):return render_template("error.html",code=404,msg="Page introuvable"),404
+def e404(e):
+    try:return render_template("error.html",code=404,msg="Page introuvable"),404
+    except:return "<h1>404 - Page introuvable</h1><a href='/'>Retour</a>",404
 @app.errorhandler(500)
-def e500(e):return render_template("error.html",code=500,msg="Erreur interne"),500
+def e500(e):
+    try:return render_template("error.html",code=500,msg="Erreur interne"),500
+    except:return "<h1>500 - Erreur interne</h1><a href='/'>Retour</a>",500
 
 @app.route("/")
 def index():return render_template("index.html",streams=list(active_streams.values()))
