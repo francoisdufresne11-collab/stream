@@ -8,9 +8,16 @@ app.config["SECRET_KEY"]=os.environ.get("SECRET_KEY",secrets.token_hex(32))
 app.config["MAX_CONTENT_LENGTH"]=500*1024*1024
 app.config["ADMIN_PASSWORD"]=os.environ.get("ADMIN_PASSWORD","admin2026")
 
-socketio=SocketIO(app,cors_allowed_origins="*",async_mode="threading",
-    ping_timeout=60,ping_interval=20,max_http_buffer_size=10_000_000,
-    logger=False,engineio_logger=False)
+socketio=SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode="threading",
+    ping_timeout=60,
+    ping_interval=20,
+    max_http_buffer_size=10_000_000,
+    logger=False,
+    engineio_logger=False,
+)
 
 BASE_DIR=Path(__file__).resolve().parent
 STREAMS_DIR=BASE_DIR/"streams"
@@ -52,8 +59,6 @@ def _ts(v):
 def e404(e):return render_template("error.html",code=404,msg="Page introuvable"),404
 @app.errorhandler(500)
 def e500(e):return render_template("error.html",code=500,msg="Erreur interne"),500
-@app.errorhandler(413)
-def e413(e):return render_template("error.html",code=413,msg="Fichier trop volumineux"),413
 
 @app.route("/")
 def index():return render_template("index.html",streams=list(active_streams.values()))
@@ -182,12 +187,8 @@ def _msg(data):
         server_stats["total_messages"]+=1
     emit("new_chat_msg",msg,to=sid)
 
-# ── Entrypoint gunicorn : app:app ──
-# gunicorn importe ce module et utilise la variable "app"
-# PAS besoin de wsgi.py
-
 if __name__=="__main__":
     port=int(os.environ.get("PORT",5000))
-    print(f"StreamCaster http://0.0.0.0:{port}  Python {sys.version.split()[0]}")
-    socketio.run(app,host="0.0.0.0",port=port,debug=False,use_reloader=False,
-        log_output=True,allow_unsafe_werkzeug=True)
+    print(f"StreamCaster http://0.0.0.0:{port}")
+    socketio.run(app,host="0.0.0.0",port=port,debug=False,
+        use_reloader=False,log_output=True,allow_unsafe_werkzeug=True)

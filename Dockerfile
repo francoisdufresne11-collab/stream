@@ -1,6 +1,5 @@
 FROM python:3.11-slim
 
-# libgl1-mesa-glx renomme en libgl1 sur Debian trixie
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libgl1 \
@@ -17,6 +16,18 @@ RUN mkdir -p streams uploads static/sounds
 ENV PORT=10000
 EXPOSE 10000
 
-# FIX: app:app au lieu de wsgi:app
-# gunicorn charge directement le module app.py et utilise la variable app
-CMD gunicorn -w 1 --threads 100 -b 0.0.0.0:$PORT --timeout 300 --keep-alive 75 --log-level info --access-logfile - --error-logfile - app:app
+# gthread = worker threading, compatible Flask-SocketIO async_mode=threading
+# -w 1 obligatoire (memoire partagee)
+# --threads 100 = 100 connexions simultanees
+# --timeout 120 = evite que gunicorn kill les longues connexions Socket.IO
+CMD gunicorn \
+    --worker-class gthread \
+    --workers 1 \
+    --threads 100 \
+    --bind 0.0.0.0:$PORT \
+    --timeout 120 \
+    --keep-alive 5 \
+    --log-level info \
+    --access-logfile - \
+    --error-logfile - \
+    app:app
