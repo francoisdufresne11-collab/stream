@@ -20,9 +20,10 @@ HTML_PAGE = """
     <title>Stream Ninja Live</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
+
         body {
             font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background: #0f172a;
+            background: #000;
             color: #f8fafc;
             height: 100vh;
             height: 100dvh;
@@ -32,19 +33,21 @@ HTML_PAGE = """
             -webkit-tap-highlight-color: transparent;
         }
 
+        /* HEADER */
         header {
-            padding: 8px 12px;
-            background: #1e293b;
+            padding: 6px 12px;
+            background: rgba(15, 23, 42, 0.95);
             display: flex;
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid #334155;
-            min-height: 50px;
+            min-height: 44px;
             flex-shrink: 0;
+            z-index: 50;
         }
 
         .logo {
-            font-size: 1rem;
+            font-size: 0.95rem;
             font-weight: bold;
             color: #38bdf8;
             display: flex;
@@ -60,33 +63,32 @@ HTML_PAGE = """
         }
 
         .btn {
-            padding: 8px 12px;
+            padding: 7px 12px;
             border: none;
             border-radius: 8px;
             font-weight: 600;
             font-size: 0.8rem;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
             display: flex;
             align-items: center;
             gap: 4px;
             white-space: nowrap;
             -webkit-user-select: none;
             user-select: none;
+            touch-action: manipulation;
         }
 
+        .btn:active { transform: scale(0.95); }
+
         .btn-broadcast { background: #0284c7; color: white; }
-        .btn-broadcast:hover:not(:disabled) { background: #0369a1; }
         .btn-screen { background: #7c3aed; color: white; }
-        .btn-screen:hover:not(:disabled) { background: #6d28d9; }
         .btn-capture { background: #059669; color: white; }
-        .btn-capture:hover:not(:disabled) { background: #047857; }
         .btn-stop { background: #ef4444; color: white; }
-        .btn-stop:hover { background: #dc2626; }
         .btn-fullscreen { background: #334155; color: white; }
-        .btn-fullscreen:hover { background: #475569; }
         .btn-share { background: #0ea5e9; color: white; }
         .btn-chat-toggle { background: #6366f1; color: white; }
+        .btn-sm { padding: 6px 10px; font-size: 0.75rem; }
 
         .btn-disabled {
             background: #475569 !important;
@@ -96,22 +98,19 @@ HTML_PAGE = """
         }
 
         .quality-select {
-            padding: 8px 10px;
+            padding: 7px 10px;
             border-radius: 8px;
             border: 1px solid #334155;
             background: #1e293b;
-            color: #ffffff;
+            color: #fff;
             font-size: 0.8rem;
             outline: none;
-            cursor: pointer;
         }
 
-        .quality-select:focus { border-color: #38bdf8; }
-
-        /* Toolbar diffuseur */
+        /* TOOLBAR */
         .broadcast-toolbar {
-            padding: 8px 12px;
-            background: #1e293b;
+            padding: 6px 10px;
+            background: rgba(30, 41, 59, 0.95);
             display: none;
             gap: 6px;
             align-items: center;
@@ -119,18 +118,21 @@ HTML_PAGE = """
             flex-wrap: wrap;
             justify-content: center;
             flex-shrink: 0;
+            z-index: 50;
         }
 
         .broadcast-toolbar.active { display: flex; }
 
-        /* Layout principal */
+        /* MAIN LAYOUT */
         .main-layout {
             display: flex;
             flex: 1;
             min-height: 0;
             position: relative;
+            background: #000;
         }
 
+        /* VIDEO */
         .video-container {
             flex: 1;
             background: #000;
@@ -139,6 +141,7 @@ HTML_PAGE = """
             justify-content: center;
             align-items: center;
             min-width: 0;
+            min-height: 0;
         }
 
         video {
@@ -152,15 +155,14 @@ HTML_PAGE = """
             position: absolute;
             top: 8px;
             left: 8px;
-            background: rgba(15, 23, 42, 0.85);
+            background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(8px);
-            padding: 6px 10px;
-            border-radius: 16px;
-            font-size: 0.75rem;
+            padding: 5px 10px;
+            border-radius: 14px;
+            font-size: 0.7rem;
             display: flex;
             align-items: center;
-            gap: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            gap: 5px;
             z-index: 10;
         }
 
@@ -168,19 +170,18 @@ HTML_PAGE = """
             position: absolute;
             top: 8px;
             right: 8px;
-            background: rgba(15, 23, 42, 0.85);
+            background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(8px);
-            padding: 6px 10px;
-            border-radius: 16px;
-            font-size: 0.75rem;
+            padding: 5px 10px;
+            border-radius: 14px;
+            font-size: 0.7rem;
             display: flex;
             align-items: center;
-            gap: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            gap: 5px;
             z-index: 10;
         }
 
-        .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; flex-shrink: 0; }
         .dot.live {
             background: #22c55e;
             box-shadow: 0 0 8px #22c55e;
@@ -188,24 +189,53 @@ HTML_PAGE = """
         }
 
         @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 8px #22c55e; }
-            50% { box-shadow: 0 0 16px #22c55e; }
+            0%, 100% { box-shadow: 0 0 6px #22c55e; }
+            50% { box-shadow: 0 0 14px #22c55e; }
         }
 
         .source-label {
             position: absolute;
             bottom: 8px;
             left: 8px;
-            background: rgba(15, 23, 42, 0.85);
+            background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(8px);
             padding: 4px 10px;
             border-radius: 10px;
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             z-index: 10;
-            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        /* Chat Panel - Desktop */
+        /* Waiting screen */
+        .waiting-screen {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: #0f172a;
+            z-index: 5;
+            gap: 16px;
+        }
+
+        .waiting-screen.hidden { display: none; }
+
+        .waiting-icon {
+            font-size: 3rem;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .waiting-text {
+            color: #94a3b8;
+            font-size: 1rem;
+        }
+
+        /* CHAT */
         .chat-panel {
             width: 320px;
             background: #1e293b;
@@ -213,14 +243,15 @@ HTML_PAGE = """
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
+            z-index: 40;
         }
 
         .chat-header {
-            padding: 12px;
+            padding: 10px 12px;
             background: #0f172a;
             font-weight: 600;
             border-bottom: 1px solid #334155;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -232,14 +263,15 @@ HTML_PAGE = """
             background: none;
             border: none;
             color: #94a3b8;
-            font-size: 1.2rem;
+            font-size: 1.4rem;
             cursor: pointer;
-            padding: 4px 8px;
+            padding: 2px 6px;
+            line-height: 1;
         }
 
         .chat-messages {
             flex: 1;
-            padding: 12px;
+            padding: 10px;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
@@ -250,15 +282,15 @@ HTML_PAGE = """
 
         .chat-msg {
             background: #334155;
-            padding: 8px 12px;
-            border-radius: 10px;
+            padding: 8px 10px;
+            border-radius: 8px;
             word-break: break-word;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             animation: fadeIn 0.3s ease;
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
+            from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
@@ -266,11 +298,11 @@ HTML_PAGE = """
             font-weight: bold;
             color: #38bdf8;
             margin-bottom: 2px;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
         }
 
         .chat-input-box {
-            padding: 10px;
+            padding: 8px;
             background: #0f172a;
             border-top: 1px solid #334155;
             display: flex;
@@ -280,11 +312,11 @@ HTML_PAGE = """
 
         .chat-input-box input {
             flex: 1;
-            padding: 10px 12px;
+            padding: 9px 12px;
             border-radius: 8px;
             border: 1px solid #334155;
             background: #1e293b;
-            color: #ffffff;
+            color: #fff;
             outline: none;
             font-size: 0.85rem;
             -webkit-appearance: none;
@@ -292,38 +324,36 @@ HTML_PAGE = """
 
         .chat-input-box input:focus { border-color: #38bdf8; }
 
-        .chat-input-box .btn { padding: 10px 14px; }
-
-        /* Notification toast */
+        /* TOAST */
         .notification-toast {
             position: fixed;
-            top: 60px;
-            right: 12px;
-            background: #1e293b;
+            top: 52px;
+            right: 10px;
+            background: rgba(30, 41, 59, 0.95);
             border: 1px solid #38bdf8;
-            border-radius: 12px;
-            padding: 10px 16px;
-            z-index: 1000;
-            animation: slideIn 0.4s ease, fadeOut 0.4s ease 3s forwards;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-            max-width: 280px;
-            font-size: 0.85rem;
+            border-radius: 10px;
+            padding: 8px 14px;
+            z-index: 2000;
+            animation: slideIn 0.3s ease, fadeOut 0.4s ease 2.5s forwards;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            max-width: 260px;
+            font-size: 0.8rem;
         }
 
         @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
+            from { transform: translateX(110%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
         }
 
         @keyframes fadeOut {
-            to { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 0; transform: translateY(-10px); }
         }
 
-        /* Share box */
+        /* SHARE */
         .share-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0,0,0,0.7);
             z-index: 999;
             display: none;
         }
@@ -335,163 +365,173 @@ HTML_PAGE = """
             transform: translate(-50%, -50%);
             background: #1e293b;
             border: 1px solid #334155;
-            border-radius: 16px;
-            padding: 24px;
+            border-radius: 14px;
+            padding: 20px;
             z-index: 1000;
-            box-shadow: 0 16px 64px rgba(0,0,0,0.6);
             display: none;
             width: 90%;
-            max-width: 400px;
+            max-width: 380px;
         }
 
-        .share-box h3 { margin-bottom: 12px; color: #38bdf8; font-size: 1rem; }
+        .share-box h3 { margin-bottom: 10px; color: #38bdf8; font-size: 0.95rem; }
 
         .share-box .link-box {
             background: #0f172a;
-            padding: 12px;
+            padding: 10px;
             border-radius: 8px;
             border: 1px solid #334155;
             word-break: break-all;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
             font-family: monospace;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
         }
 
-        /* Badge notification chat mobile */
-        .chat-badge {
-            position: absolute;
-            top: -4px;
-            right: -4px;
-            background: #ef4444;
-            color: white;
-            border-radius: 50%;
-            width: 18px;
-            height: 18px;
-            font-size: 0.65rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            display: none;
-        }
-
+        /* BADGE */
         .btn-chat-wrapper {
             position: relative;
             display: none;
         }
 
-        /* ========== MOBILE ========== */
+        .chat-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ef4444;
+            color: white;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            font-size: 0.6rem;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        /* FULLSCREEN */
+        .fullscreen-active header,
+        .fullscreen-active .broadcast-toolbar {
+            display: none !important;
+        }
+
+        .fullscreen-active .main-layout {
+            height: 100vh;
+            height: 100dvh;
+        }
+
+        .fullscreen-controls {
+            position: fixed;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(12px);
+            padding: 8px 16px;
+            border-radius: 30px;
+            display: none;
+            gap: 10px;
+            align-items: center;
+            z-index: 100;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .fullscreen-controls.visible {
+            display: flex;
+            opacity: 1;
+        }
+
+        .fullscreen-controls .btn {
+            padding: 8px 14px;
+            font-size: 0.8rem;
+            border-radius: 20px;
+        }
+
+        /* ===== MOBILE ===== */
         @media (max-width: 768px) {
-            header {
-                padding: 6px 10px;
-                min-height: 44px;
-            }
-
-            .logo { font-size: 0.9rem; }
-
             .main-layout {
                 flex-direction: column;
             }
 
             .video-container {
-                flex: none;
-                height: 56vw;
-                min-height: 200px;
-                max-height: 50vh;
+                flex: 1;
+                min-height: 0;
+                width: 100%;
             }
 
-            /* Chat prend le reste en mobile */
             .chat-panel {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                top: auto;
+                height: 45%;
                 width: 100%;
-                flex: 1;
                 border-left: none;
                 border-top: 1px solid #334155;
-                display: flex;
+                transform: translateY(0);
+                transition: transform 0.3s ease;
+                border-radius: 16px 16px 0 0;
+                z-index: 60;
             }
 
             .chat-panel.hidden-mobile {
-                display: none;
+                transform: translateY(100%);
             }
 
             .chat-close { display: block; }
-
             .btn-chat-wrapper { display: block; }
 
-            .broadcast-toolbar .btn span.btn-label {
-                display: none;
+            .broadcast-toolbar .btn-label { display: none; }
+
+            .fullscreen-controls {
+                bottom: 10px;
+                padding: 6px 12px;
+                gap: 8px;
             }
 
-            .broadcast-toolbar {
-                padding: 6px 8px;
-                gap: 4px;
-            }
-
-            .broadcast-toolbar .btn {
-                padding: 8px 10px;
-                font-size: 0.75rem;
-            }
-
-            .quality-select {
-                padding: 6px 8px;
-                font-size: 0.75rem;
-            }
-
-            .share-box {
-                width: 92%;
-                padding: 20px;
+            .fullscreen-controls .btn {
+                padding: 6px 10px;
+                font-size: 0.7rem;
             }
 
             .notification-toast {
                 top: auto;
-                bottom: 12px;
+                bottom: 10px;
                 right: 8px;
                 left: 8px;
                 max-width: none;
+                font-size: 0.75rem;
             }
         }
 
-        /* ========== TRES PETIT ECRAN ========== */
         @media (max-width: 380px) {
             .logo { font-size: 0.8rem; }
-            .btn { padding: 6px 8px; font-size: 0.7rem; }
-            .quality-select { font-size: 0.7rem; padding: 6px; }
-
-            .video-container {
-                height: 50vw;
-                min-height: 160px;
-            }
+            .btn { padding: 5px 8px; font-size: 0.7rem; }
         }
 
-        /* ========== PAYSAGE MOBILE ========== */
         @media (max-height: 500px) and (orientation: landscape) {
-            header { padding: 4px 10px; min-height: 36px; }
-            .logo { font-size: 0.8rem; }
-            .btn { padding: 5px 8px; font-size: 0.7rem; }
+            header { padding: 3px 8px; min-height: 34px; }
+            .logo { font-size: 0.75rem; }
+            .btn { padding: 4px 8px; font-size: 0.7rem; }
 
             .main-layout { flex-direction: row; }
 
             .video-container {
                 flex: 1;
-                height: auto;
-                max-height: none;
+                height: 100%;
             }
 
             .chat-panel {
-                width: 260px;
-                border-left: 1px solid #334155;
-                border-top: none;
+                position: relative;
+                width: 240px;
+                height: 100%;
+                border-radius: 0;
+                transform: none;
             }
 
-            .chat-panel.hidden-mobile { display: none; }
-            .btn-chat-wrapper { display: block; }
-
-            .broadcast-toolbar {
-                padding: 4px 8px;
-            }
-
-            .broadcast-toolbar .btn {
-                padding: 4px 8px;
-                font-size: 0.7rem;
+            .chat-panel.hidden-mobile {
+                display: none;
             }
         }
     </style>
@@ -501,11 +541,11 @@ HTML_PAGE = """
         <div class="logo">&#127909; Stream Ninja</div>
         <div class="header-btns">
             <div class="btn-chat-wrapper">
-                <button class="btn btn-chat-toggle" onclick="toggleChat()">&#128172;</button>
+                <button class="btn btn-chat-toggle btn-sm" onclick="toggleChat()">&#128172;</button>
                 <span class="chat-badge" id="chatBadge">0</span>
             </div>
-            <button class="btn btn-fullscreen" onclick="toggleFullscreen()">&#9974;</button>
-            <button class="btn btn-share" onclick="showShareBox()">&#128279;</button>
+            <button class="btn btn-fullscreen btn-sm" onclick="toggleFullscreen()">&#9974;</button>
+            <button class="btn btn-share btn-sm" onclick="showShareBox()">&#128279;</button>
         </div>
     </header>
 
@@ -517,22 +557,22 @@ HTML_PAGE = """
             <option value="480">480p</option>
             <option value="360">360p</option>
         </select>
-        <button id="cameraBtn" class="btn btn-broadcast" onclick="startCamera()">
+        <button id="cameraBtn" class="btn btn-broadcast btn-sm" onclick="startCamera()">
             &#128247; <span class="btn-label">Camera</span>
         </button>
-        <button id="screenBtn" class="btn btn-screen" onclick="startScreen()">
+        <button id="screenBtn" class="btn btn-screen btn-sm" onclick="startScreen()">
             &#128187; <span class="btn-label">Ecran</span>
         </button>
-        <button id="captureBtn" class="btn btn-capture" onclick="startCapture()">
+        <button id="captureBtn" class="btn btn-capture btn-sm" onclick="startCapture()">
             &#127910; <span class="btn-label">Capture</span>
         </button>
-        <button id="stopBtn" class="btn btn-stop" onclick="stopBroadcast()" style="display:none;">
+        <button id="stopBtn" class="btn btn-stop btn-sm" onclick="stopBroadcast()" style="display:none;">
             &#9632; Stop
         </button>
     </div>
 
     <div class="main-layout" id="streamContainer">
-        <div class="video-container">
+        <div class="video-container" id="videoContainer">
             <div class="status-overlay">
                 <span class="dot" id="statusDot"></span>
                 <span id="statusText">Hors ligne</span>
@@ -541,7 +581,13 @@ HTML_PAGE = """
                 &#128065; <span id="viewersCount">0</span>
             </div>
             <div class="source-label" id="sourceLabel" style="display:none;"></div>
-            <video id="remoteVideo" autoplay playsinline></video>
+
+            <div class="waiting-screen" id="waitingScreen">
+                <div class="waiting-icon">&#127909;</div>
+                <div class="waiting-text">En attente du direct...</div>
+            </div>
+
+            <video id="remoteVideo" autoplay playsinline style="display:none;"></video>
             <video id="localVideo" autoplay playsinline muted style="display:none;"></video>
         </div>
 
@@ -554,20 +600,24 @@ HTML_PAGE = """
             <div class="chat-input-box">
                 <input type="text" id="chatInput" placeholder="Message..."
                        onkeypress="if(event.key==='Enter') sendChatMessage()">
-                <button class="btn btn-broadcast" onclick="sendChatMessage()">&#10148;</button>
+                <button class="btn btn-broadcast btn-sm" onclick="sendChatMessage()">&#10148;</button>
             </div>
         </div>
+    </div>
+
+    <div class="fullscreen-controls" id="fullscreenControls">
+        <button class="btn btn-chat-toggle" onclick="toggleChat()">&#128172; Chat</button>
+        <button class="btn btn-stop" onclick="exitFullscreen()">&#10005; Quitter</button>
     </div>
 
     <div class="share-overlay" id="shareOverlay" onclick="hideShareBox()"></div>
     <div class="share-box" id="shareBox">
         <h3>&#128279; Partager le live</h3>
-        <p style="margin-bottom:10px;color:#94a3b8;font-size:0.85rem;">Envoyez ce lien aux spectateurs :</p>
+        <p style="margin-bottom:10px;color:#94a3b8;font-size:0.8rem;">Envoyez ce lien aux spectateurs :</p>
         <div class="link-box" id="shareLink"></div>
-        <button class="btn btn-broadcast" onclick="copyLink()" style="width:100%;justify-content:center;">
+        <button class="btn btn-broadcast" onclick="copyLink()" style="width:100%;justify-content:center;margin-bottom:8px;">
             Copier le lien
         </button>
-        <br><br>
         <button class="btn btn-stop" onclick="hideShareBox()" style="width:100%;justify-content:center;">
             Fermer
         </button>
@@ -575,37 +625,42 @@ HTML_PAGE = """
 
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
-        const socket = io();
-        let localStream = null;
-        let isBroadcaster = false;
-        let currentBroadcasterId = null;
-        let peerConnections = {};
-        let viewerPeerConnection = null;
-        let currentSource = '';
-        let originalTitle = document.title;
-        let unreadCount = 0;
-        let windowFocused = true;
-        let chatVisible = true;
-        let mobileChatUnread = 0;
+        var socket = io();
+        var localStream = null;
+        var isBroadcaster = false;
+        var currentBroadcasterId = null;
+        var peerConnections = {};
+        var viewerPeerConnection = null;
+        var currentSource = '';
+        var originalTitle = document.title;
+        var unreadCount = 0;
+        var windowFocused = true;
+        var chatVisible = true;
+        var mobileChatUnread = 0;
+        var isFullscreen = false;
+        var fullscreenTimeout = null;
 
-        const cameraBtn = document.getElementById('cameraBtn');
-        const screenBtn = document.getElementById('screenBtn');
-        const captureBtn = document.getElementById('captureBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        const localVideo = document.getElementById('localVideo');
-        const remoteVideo = document.getElementById('remoteVideo');
-        const statusDot = document.getElementById('statusDot');
-        const statusText = document.getElementById('statusText');
-        const chatMessages = document.getElementById('chatMessages');
-        const sourceLabel = document.getElementById('sourceLabel');
-        const viewersCount = document.getElementById('viewersCount');
-        const chatPanel = document.getElementById('chatPanel');
-        const chatBadge = document.getElementById('chatBadge');
-        const broadcastToolbar = document.getElementById('broadcastToolbar');
+        var cameraBtn = document.getElementById('cameraBtn');
+        var screenBtn = document.getElementById('screenBtn');
+        var captureBtn = document.getElementById('captureBtn');
+        var stopBtn = document.getElementById('stopBtn');
+        var localVideo = document.getElementById('localVideo');
+        var remoteVideo = document.getElementById('remoteVideo');
+        var statusDot = document.getElementById('statusDot');
+        var statusText = document.getElementById('statusText');
+        var chatMessages = document.getElementById('chatMessages');
+        var sourceLabel = document.getElementById('sourceLabel');
+        var viewersCount = document.getElementById('viewersCount');
+        var chatPanel = document.getElementById('chatPanel');
+        var chatBadge = document.getElementById('chatBadge');
+        var broadcastToolbar = document.getElementById('broadcastToolbar');
+        var waitingScreen = document.getElementById('waitingScreen');
+        var fullscreenControls = document.getElementById('fullscreenControls');
+        var videoContainer = document.getElementById('videoContainer');
 
-        const userId = 'User_' + Math.floor(Math.random() * 9000 + 1000);
+        var userId = 'User_' + Math.floor(Math.random() * 9000 + 1000);
 
-        const rtcConfig = {
+        var rtcConfig = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
@@ -613,7 +668,7 @@ HTML_PAGE = """
             ]
         };
 
-        const qualityPresets = {
+        var qualityPresets = {
             '1080': { width: 1920, height: 1080, frameRate: 30 },
             '720':  { width: 1280, height: 720,  frameRate: 30 },
             '480':  { width: 854,  height: 480,  frameRate: 24 },
@@ -621,12 +676,74 @@ HTML_PAGE = """
             'auto': { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
         };
 
-        // Detecter mobile
-        function isMobile() {
-            return window.innerWidth <= 768;
+        function isMobile() { return window.innerWidth <= 768; }
+
+        // === FULLSCREEN ===
+        function toggleFullscreen() {
+            if (!isFullscreen) {
+                enterFullscreen();
+            } else {
+                exitFullscreen();
+            }
         }
 
-        // Chat toggle mobile
+        function enterFullscreen() {
+            var elem = document.documentElement;
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) {
+                elem.msRequestFullscreen();
+            }
+            document.body.classList.add('fullscreen-active');
+            isFullscreen = true;
+            showFullscreenControls();
+
+            if (isMobile()) {
+                chatPanel.classList.add('hidden-mobile');
+                chatVisible = false;
+            }
+        }
+
+        function exitFullscreen() {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+            document.body.classList.remove('fullscreen-active');
+            isFullscreen = false;
+            fullscreenControls.classList.remove('visible');
+        }
+
+        document.addEventListener('fullscreenchange', function() {
+            if (!document.fullscreenElement) {
+                document.body.classList.remove('fullscreen-active');
+                isFullscreen = false;
+                fullscreenControls.classList.remove('visible');
+            }
+        });
+
+        function showFullscreenControls() {
+            fullscreenControls.classList.add('visible');
+            clearTimeout(fullscreenTimeout);
+            fullscreenTimeout = setTimeout(function() {
+                fullscreenControls.classList.remove('visible');
+            }, 4000);
+        }
+
+        document.addEventListener('mousemove', function() {
+            if (isFullscreen) showFullscreenControls();
+        });
+
+        document.addEventListener('touchstart', function() {
+            if (isFullscreen) showFullscreenControls();
+        });
+
+        // === CHAT ===
         function toggleChat() {
             if (chatVisible) {
                 chatPanel.classList.add('hidden-mobile');
@@ -640,14 +757,6 @@ HTML_PAGE = """
             }
         }
 
-        // Init mobile
-        function initMobileLayout() {
-            if (isMobile()) {
-                chatPanel.classList.remove('hidden-mobile');
-                chatVisible = true;
-            }
-        }
-
         window.addEventListener('resize', function() {
             if (!isMobile()) {
                 chatPanel.classList.remove('hidden-mobile');
@@ -656,184 +765,138 @@ HTML_PAGE = """
             }
         });
 
-        // Son notification
+        // === SON ===
         function playNotificationSound() {
             try {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
-                oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime + 0.1);
-                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-                oscillator.start(audioCtx.currentTime);
-                oscillator.stop(audioCtx.currentTime + 0.3);
+                var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                var osc = audioCtx.createOscillator();
+                var gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                osc.frequency.setValueAtTime(1200, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.3);
             } catch(e) {}
         }
 
-        // Notification onglet
+        // === ONGLET ===
         window.addEventListener('focus', function() {
             windowFocused = true;
             unreadCount = 0;
             document.title = originalTitle;
         });
-
-        window.addEventListener('blur', function() {
-            windowFocused = false;
-        });
+        window.addEventListener('blur', function() { windowFocused = false; });
 
         function updateTabNotification() {
             if (!windowFocused) {
                 unreadCount++;
-                document.title = '(' + unreadCount + ') Nouveau message - Stream Ninja';
+                document.title = '(' + unreadCount + ') Nouveau msg - Stream Ninja';
             }
         }
 
-        // Toast
+        // === TOAST ===
         function showToast(message) {
-            var existing = document.querySelectorAll('.notification-toast');
-            if (existing.length > 3) {
-                existing[0].parentNode.removeChild(existing[0]);
-            }
-            var toast = document.createElement('div');
-            toast.className = 'notification-toast';
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            setTimeout(function() {
-                if (toast.parentNode) toast.parentNode.removeChild(toast);
-            }, 3500);
+            var old = document.querySelectorAll('.notification-toast');
+            if (old.length > 2) old[0].parentNode.removeChild(old[0]);
+            var t = document.createElement('div');
+            t.className = 'notification-toast';
+            t.textContent = message;
+            document.body.appendChild(t);
+            setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 3000);
         }
 
-        // Qualite
+        // === QUALITE ===
         function getQualityConstraints() {
-            var quality = document.getElementById('qualitySelect').value;
-            return qualityPresets[quality] || qualityPresets['720'];
+            var q = document.getElementById('qualitySelect').value;
+            return qualityPresets[q] || qualityPresets['720'];
         }
 
         function updateQuality() {
             if (!isBroadcaster || !localStream) return;
-            var quality = getQualityConstraints();
-            var videoTrack = localStream.getVideoTracks()[0];
-            if (videoTrack) {
-                videoTrack.applyConstraints({
-                    width: quality.width,
-                    height: quality.height,
-                    frameRate: quality.frameRate
-                }).catch(function(e) { console.log('Qualite non supportee:', e); });
+            var q = getQualityConstraints();
+            var vt = localStream.getVideoTracks()[0];
+            if (vt) {
+                vt.applyConstraints({
+                    width: q.width, height: q.height, frameRate: q.frameRate
+                }).catch(function(e) { console.log('Qualite:', e); });
             }
         }
 
-        // Sources
+        // === SOURCES ===
         async function startCamera() {
-            var quality = getQualityConstraints();
+            var q = getQualityConstraints();
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: quality.width, height: quality.height, frameRate: quality.frameRate },
+                    video: { width: q.width, height: q.height, frameRate: q.frameRate },
                     audio: true
                 });
                 currentSource = 'Camera';
                 startBroadcastWithStream();
-            } catch (err) {
-                alert('Erreur camera : ' + err.message);
-            }
+            } catch (err) { alert('Erreur camera : ' + err.message); }
         }
 
         async function startScreen() {
-            var quality = getQualityConstraints();
+            var q = getQualityConstraints();
             try {
-                var screenStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { width: quality.width, height: quality.height, frameRate: quality.frameRate },
+                var ss = await navigator.mediaDevices.getDisplayMedia({
+                    video: { width: q.width, height: q.height, frameRate: q.frameRate },
                     audio: true
                 });
-
                 try {
-                    var micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    var audioCtx = new AudioContext();
-                    var dest = audioCtx.createMediaStreamDestination();
-
-                    if (screenStream.getAudioTracks().length > 0) {
-                        audioCtx.createMediaStreamSource(screenStream).connect(dest);
-                    }
-                    audioCtx.createMediaStreamSource(micStream).connect(dest);
-
+                    var mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    var ctx = new AudioContext();
+                    var dest = ctx.createMediaStreamDestination();
+                    if (ss.getAudioTracks().length > 0) ctx.createMediaStreamSource(ss).connect(dest);
+                    ctx.createMediaStreamSource(mic).connect(dest);
                     localStream = new MediaStream([
-                        ...screenStream.getVideoTracks(),
-                        ...dest.stream.getAudioTracks()
+                        ...ss.getVideoTracks(), ...dest.stream.getAudioTracks()
                     ]);
-                } catch(e) {
-                    localStream = screenStream;
-                }
-
+                } catch(e) { localStream = ss; }
                 currentSource = 'Ecran';
-
-                screenStream.getVideoTracks()[0].onended = function() {
-                    stopBroadcast();
-                };
-
+                ss.getVideoTracks()[0].onended = function() { stopBroadcast(); };
                 startBroadcastWithStream();
-            } catch (err) {
-                alert('Partage ecran refuse : ' + err.message);
-            }
+            } catch (err) { alert('Partage ecran refuse : ' + err.message); }
         }
 
         async function startCapture() {
-            var quality = getQualityConstraints();
+            var q = getQualityConstraints();
             try {
-                var devices = await navigator.mediaDevices.enumerateDevices();
-                var videoDevices = devices.filter(function(d) { return d.kind === 'videoinput'; });
-
-                if (videoDevices.length === 0) {
-                    alert('Aucun peripherique video detecte');
-                    return;
-                }
-
-                var captureDevice = videoDevices[videoDevices.length - 1];
-
-                for (var i = 0; i < videoDevices.length; i++) {
-                    var label = videoDevices[i].label.toLowerCase();
-                    if (label.indexOf('capture') !== -1 ||
-                        label.indexOf('cam link') !== -1 ||
-                        label.indexOf('elgato') !== -1 ||
-                        label.indexOf('avermedia') !== -1 ||
-                        label.indexOf('hdmi') !== -1 ||
-                        label.indexOf('usb video') !== -1) {
-                        captureDevice = videoDevices[i];
-                        break;
+                var devs = await navigator.mediaDevices.enumerateDevices();
+                var vids = devs.filter(function(d) { return d.kind === 'videoinput'; });
+                if (vids.length === 0) { alert('Aucun peripherique video'); return; }
+                var cap = vids[vids.length - 1];
+                for (var i = 0; i < vids.length; i++) {
+                    var lb = vids[i].label.toLowerCase();
+                    if (lb.indexOf('capture') !== -1 || lb.indexOf('cam link') !== -1 ||
+                        lb.indexOf('elgato') !== -1 || lb.indexOf('avermedia') !== -1 ||
+                        lb.indexOf('hdmi') !== -1 || lb.indexOf('usb video') !== -1) {
+                        cap = vids[i]; break;
                     }
                 }
-
                 localStream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        deviceId: { exact: captureDevice.deviceId },
-                        width: quality.width,
-                        height: quality.height,
-                        frameRate: quality.frameRate
-                    },
+                    video: { deviceId: { exact: cap.deviceId }, width: q.width, height: q.height, frameRate: q.frameRate },
                     audio: true
                 });
-
-                currentSource = 'Capture (' + (captureDevice.label || 'Inconnu') + ')';
+                currentSource = 'Capture';
                 startBroadcastWithStream();
-            } catch (err) {
-                alert('Erreur carte de capture : ' + err.message);
-            }
+            } catch (err) { alert('Erreur capture : ' + err.message); }
         }
 
         function startBroadcastWithStream() {
-            localVideo.srcObject = localStream;
+            waitingScreen.classList.add('hidden');
             localVideo.style.display = 'block';
+            localVideo.srcObject = localStream;
             remoteVideo.style.display = 'none';
             sourceLabel.textContent = currentSource;
             sourceLabel.style.display = 'block';
             isBroadcaster = true;
-
             cameraBtn.style.display = 'none';
             screenBtn.style.display = 'none';
             captureBtn.style.display = 'none';
             stopBtn.style.display = 'flex';
-
             socket.emit('start_broadcast', { source: currentSource });
         }
 
@@ -844,25 +907,26 @@ HTML_PAGE = """
 
         function stopLocalStream() {
             if (localStream) {
-                localStream.getTracks().forEach(function(track) { track.stop(); });
+                localStream.getTracks().forEach(function(t) { t.stop(); });
                 localStream = null;
             }
             Object.values(peerConnections).forEach(function(pc) { pc.close(); });
             peerConnections = {};
             localVideo.style.display = 'none';
             localVideo.srcObject = null;
-            remoteVideo.style.display = 'block';
+            remoteVideo.style.display = 'none';
+            remoteVideo.srcObject = null;
             sourceLabel.style.display = 'none';
+            waitingScreen.classList.remove('hidden');
             isBroadcaster = false;
             currentSource = '';
-
             cameraBtn.style.display = 'flex';
             screenBtn.style.display = 'flex';
             captureBtn.style.display = 'flex';
             stopBtn.style.display = 'none';
         }
 
-        // Socket
+        // === SOCKET ===
         socket.on('broadcaster_status', function(data) {
             currentBroadcasterId = data.broadcaster_id;
             viewersCount.textContent = data.viewers || 0;
@@ -873,11 +937,11 @@ HTML_PAGE = """
                     statusText.textContent = 'En direct';
                     broadcastToolbar.classList.add('active');
                 } else {
-                    cameraBtn.className = 'btn btn-disabled';
+                    cameraBtn.className = 'btn btn-disabled btn-sm';
                     cameraBtn.disabled = true;
-                    screenBtn.className = 'btn btn-disabled';
+                    screenBtn.className = 'btn btn-disabled btn-sm';
                     screenBtn.disabled = true;
-                    captureBtn.className = 'btn btn-disabled';
+                    captureBtn.className = 'btn btn-disabled btn-sm';
                     captureBtn.disabled = true;
                     statusDot.className = 'dot live';
                     statusText.textContent = 'En direct';
@@ -889,11 +953,11 @@ HTML_PAGE = """
                     socket.emit('request_stream');
                 }
             } else {
-                cameraBtn.className = 'btn btn-broadcast';
+                cameraBtn.className = 'btn btn-broadcast btn-sm';
                 cameraBtn.disabled = false;
-                screenBtn.className = 'btn btn-screen';
+                screenBtn.className = 'btn btn-screen btn-sm';
                 screenBtn.disabled = false;
-                captureBtn.className = 'btn btn-capture';
+                captureBtn.className = 'btn btn-capture btn-sm';
                 captureBtn.disabled = false;
                 statusDot.className = 'dot';
                 statusText.textContent = 'Hors ligne';
@@ -905,7 +969,9 @@ HTML_PAGE = """
                 } else if (viewerPeerConnection) {
                     viewerPeerConnection.close();
                     viewerPeerConnection = null;
+                    remoteVideo.style.display = 'none';
                     remoteVideo.srcObject = null;
+                    waitingScreen.classList.remove('hidden');
                 }
             }
         });
@@ -914,31 +980,31 @@ HTML_PAGE = """
             viewersCount.textContent = data.count;
         });
 
-        // WebRTC
+        // === WEBRTC ===
         socket.on('new_viewer', async function(data) {
             if (!isBroadcaster || !localStream) return;
-            var viewerId = data.viewer_id;
+            var vid = data.viewer_id;
             var pc = new RTCPeerConnection(rtcConfig);
-            peerConnections[viewerId] = pc;
-
-            localStream.getTracks().forEach(function(track) { pc.addTrack(track, localStream); });
-
+            peerConnections[vid] = pc;
+            localStream.getTracks().forEach(function(t) { pc.addTrack(t, localStream); });
             pc.onicecandidate = function(e) {
-                if (e.candidate) socket.emit('candidate', { target: viewerId, candidate: e.candidate });
+                if (e.candidate) socket.emit('candidate', { target: vid, candidate: e.candidate });
             };
-
             var offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            socket.emit('offer', { target: viewerId, offer: offer });
+            socket.emit('offer', { target: vid, offer: offer });
         });
 
         socket.on('offer', async function(data) {
             viewerPeerConnection = new RTCPeerConnection(rtcConfig);
-            viewerPeerConnection.ontrack = function(e) { remoteVideo.srcObject = e.streams[0]; };
+            viewerPeerConnection.ontrack = function(e) {
+                waitingScreen.classList.add('hidden');
+                remoteVideo.style.display = 'block';
+                remoteVideo.srcObject = e.streams[0];
+            };
             viewerPeerConnection.onicecandidate = function(e) {
                 if (e.candidate) socket.emit('candidate', { target: data.broadcaster_id, candidate: e.candidate });
             };
-
             await viewerPeerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
             var answer = await viewerPeerConnection.createAnswer();
             await viewerPeerConnection.setLocalDescription(answer);
@@ -954,7 +1020,7 @@ HTML_PAGE = """
             var pc = isBroadcaster ? peerConnections[data.from] : viewerPeerConnection;
             if (pc && data.candidate) {
                 try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); }
-                catch (e) { console.error('Erreur ICE:', e); }
+                catch (e) {}
             }
         });
 
@@ -965,44 +1031,42 @@ HTML_PAGE = """
             }
         });
 
-        // Chat
+        // === CHAT ===
         function sendChatMessage() {
             var input = document.getElementById('chatInput');
-            var message = input.value.trim();
-            if (message) {
-                socket.emit('chat_message', { user: userId, text: message });
+            var msg = input.value.trim();
+            if (msg) {
+                socket.emit('chat_message', { user: userId, text: msg });
                 input.value = '';
             }
         }
 
         socket.on('chat_message', function(data) {
-            var msgEl = document.createElement('div');
-            msgEl.className = 'chat-msg';
-            msgEl.innerHTML = '<div class="author">' + escapeHtml(data.user) + '</div><div>' + escapeHtml(data.text) + '</div>';
-            chatMessages.appendChild(msgEl);
+            var el = document.createElement('div');
+            el.className = 'chat-msg';
+            el.innerHTML = '<div class="author">' + escapeHtml(data.user) + '</div><div>' + escapeHtml(data.text) + '</div>';
+            chatMessages.appendChild(el);
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
             if (data.user !== userId) {
                 playNotificationSound();
                 updateTabNotification();
-
                 if (isMobile() && !chatVisible) {
                     mobileChatUnread++;
                     chatBadge.textContent = mobileChatUnread;
                     chatBadge.style.display = 'flex';
-                } else {
-                    showToast(data.user + ': ' + data.text.substring(0, 40));
                 }
+                showToast(data.user + ': ' + data.text.substring(0, 40));
             }
         });
 
-        function escapeHtml(str) {
-            var div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
+        function escapeHtml(s) {
+            var d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
         }
 
-        // Partage
+        // === SHARE ===
         function showShareBox() {
             document.getElementById('shareLink').textContent = window.location.href;
             document.getElementById('shareBox').style.display = 'block';
@@ -1020,19 +1084,7 @@ HTML_PAGE = """
             });
         }
 
-        // Plein ecran
-        function toggleFullscreen() {
-            var elem = document.getElementById('streamContainer');
-            if (!document.fullscreenElement) {
-                if (elem.requestFullscreen) elem.requestFullscreen();
-                else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
-            } else {
-                if (document.exitFullscreen) document.exitFullscreen();
-            }
-        }
-
-        // Init
-        initMobileLayout();
+        // INIT
         broadcastToolbar.classList.add('active');
     </script>
 </body>
@@ -1061,7 +1113,6 @@ def handle_connect():
 def handle_disconnect():
     global broadcaster_id, broadcast_source
     viewers.discard(request.sid)
-
     if request.sid == broadcaster_id:
         broadcaster_id = None
         broadcast_source = ''
@@ -1073,7 +1124,6 @@ def handle_disconnect():
     else:
         if broadcaster_id:
             emit('viewer_disconnected', {'viewer_id': request.sid}, room=broadcaster_id)
-
     emit('viewers_count', {'count': len(viewers)}, broadcast=True)
 
 @socketio.on('start_broadcast')
