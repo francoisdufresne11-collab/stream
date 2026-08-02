@@ -5,10 +5,7 @@ from flask_socketio import SocketIO, emit
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'stream_ninja_secret_key_123')
 
-# Configuration WebSockets avec support Eventlet pour Render
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
-
-# Variable globale pour stocker l'ID du diffuseur actuel
 broadcaster_id = None
 
 HTML_PAGE = """
