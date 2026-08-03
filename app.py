@@ -1,1177 +1,731 @@
 import os
-from flask import Flask, render_template_string, request
-from flask_socketio import SocketIO, emit
+import sys
+import time
+import uuid
+import shutil
+import secrets
+import threading
+import datetime
+from pathlib import Path
+from flask import (
+    Flask, render_template_string, request, jsonify,
+    send_from_directory, Response, redirect, url_for, session, flash
+)
+from flask_socketio import SocketIO, emit, join_room, leave_room
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'stream_ninja_secret_key_123')
-
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
-broadcaster_id = None
-
-HTML_PAGE = """
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#0f172a">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Stream Ninja Live</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background: #000;
-            color: #f8fafc;
-            height: 100vh;
-            height: 100dvh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        /* HEADER */
-        header {
-            padding: 6px 12px;
-            background: rgba(15, 23, 42, 0.95);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #334155;
-            min-height: 44px;
-            flex-shrink: 0;
-            z-index: 50;
-        }
-
-        .logo {
-            font-size: 0.95rem;
-            font-weight: bold;
-            color: #38bdf8;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            white-space: nowrap;
-        }
-
-        .header-btns {
-            display: flex;
-            gap: 6px;
-            align-items: center;
-        }
-
-        .btn {
-            padding: 7px 12px;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 0.8rem;
-            cursor: pointer;
-            transition: all 0.15s ease;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            white-space: nowrap;
-            -webkit-user-select: none;
-            user-select: none;
-            touch-action: manipulation;
-        }
-
-        .btn:active { transform: scale(0.95); }
-
-        .btn-broadcast { background: #0284c7; color: white; }
-        .btn-screen { background: #7c3aed; color: white; }
-        .btn-capture { background: #059669; color: white; }
-        .btn-stop { background: #ef4444; color: white; }
-        .btn-fullscreen { background: #334155; color: white; }
-        .btn-share { background: #0ea5e9; color: white; }
-        .btn-chat-toggle { background: #6366f1; color: white; }
-        .btn-sm { padding: 6px 10px; font-size: 0.75rem; }
-
-        .btn-disabled {
-            background: #475569 !important;
-            color: #94a3b8 !important;
-            cursor: not-allowed !important;
-            opacity: 0.7;
-        }
-
-        .quality-select {
-            padding: 7px 10px;
-            border-radius: 8px;
-            border: 1px solid #334155;
-            background: #1e293b;
-            color: #fff;
-            font-size: 0.8rem;
-            outline: none;
-        }
-
-        /* TOOLBAR */
-        .broadcast-toolbar {
-            padding: 6px 10px;
-            background: rgba(30, 41, 59, 0.95);
-            display: none;
-            gap: 6px;
-            align-items: center;
-            border-bottom: 1px solid #334155;
-            flex-wrap: wrap;
-            justify-content: center;
-            flex-shrink: 0;
-            z-index: 50;
-        }
-
-        .broadcast-toolbar.active { display: flex; }
-
-        /* MAIN LAYOUT */
-        .main-layout {
-            display: flex;
-            flex: 1;
-            min-height: 0;
-            position: relative;
-            background: #000;
-        }
-
-        /* VIDEO */
-        .video-container {
-            flex: 1;
-            background: #000;
-            position: relative;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-width: 0;
-            min-height: 0;
-        }
-
-        video {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            background: #000;
-        }
-
-        .status-overlay {
-            position: absolute;
-            top: 8px;
-            left: 8px;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(8px);
-            padding: 5px 10px;
-            border-radius: 14px;
-            font-size: 0.7rem;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            z-index: 10;
-        }
-
-        .viewers-count {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(8px);
-            padding: 5px 10px;
-            border-radius: 14px;
-            font-size: 0.7rem;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            z-index: 10;
-        }
-
-        .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; flex-shrink: 0; }
-        .dot.live {
-            background: #22c55e;
-            box-shadow: 0 0 8px #22c55e;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 6px #22c55e; }
-            50% { box-shadow: 0 0 14px #22c55e; }
-        }
-
-        .source-label {
-            position: absolute;
-            bottom: 8px;
-            left: 8px;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(8px);
-            padding: 4px 10px;
-            border-radius: 10px;
-            font-size: 0.65rem;
-            z-index: 10;
-        }
-
-        /* Waiting screen */
-        .waiting-screen {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            background: #0f172a;
-            z-index: 5;
-            gap: 16px;
-        }
-
-        .waiting-screen.hidden { display: none; }
-
-        .waiting-icon {
-            font-size: 3rem;
-            animation: float 3s ease-in-out infinite;
-        }
-
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-
-        .waiting-text {
-            color: #94a3b8;
-            font-size: 1rem;
-        }
-
-        /* CHAT */
-        .chat-panel {
-            width: 320px;
-            background: #1e293b;
-            border-left: 1px solid #334155;
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-            z-index: 40;
-        }
-
-        .chat-header {
-            padding: 10px 12px;
-            background: #0f172a;
-            font-weight: 600;
-            border-bottom: 1px solid #334155;
-            font-size: 0.85rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-shrink: 0;
-        }
-
-        .chat-close {
-            display: none;
-            background: none;
-            border: none;
-            color: #94a3b8;
-            font-size: 1.4rem;
-            cursor: pointer;
-            padding: 2px 6px;
-            line-height: 1;
-        }
-
-        .chat-messages {
-            flex: 1;
-            padding: 10px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            min-height: 0;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        .chat-msg {
-            background: #334155;
-            padding: 8px 10px;
-            border-radius: 8px;
-            word-break: break-word;
-            font-size: 0.8rem;
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .chat-msg .author {
-            font-weight: bold;
-            color: #38bdf8;
-            margin-bottom: 2px;
-            font-size: 0.7rem;
-        }
-
-        .chat-input-box {
-            padding: 8px;
-            background: #0f172a;
-            border-top: 1px solid #334155;
-            display: flex;
-            gap: 6px;
-            flex-shrink: 0;
-        }
-
-        .chat-input-box input {
-            flex: 1;
-            padding: 9px 12px;
-            border-radius: 8px;
-            border: 1px solid #334155;
-            background: #1e293b;
-            color: #fff;
-            outline: none;
-            font-size: 0.85rem;
-            -webkit-appearance: none;
-        }
-
-        .chat-input-box input:focus { border-color: #38bdf8; }
-
-        /* TOAST */
-        .notification-toast {
-            position: fixed;
-            top: 52px;
-            right: 10px;
-            background: rgba(30, 41, 59, 0.95);
-            border: 1px solid #38bdf8;
-            border-radius: 10px;
-            padding: 8px 14px;
-            z-index: 2000;
-            animation: slideIn 0.3s ease, fadeOut 0.4s ease 2.5s forwards;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            max-width: 260px;
-            font-size: 0.8rem;
-        }
-
-        @keyframes slideIn {
-            from { transform: translateX(110%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-
-        @keyframes fadeOut {
-            to { opacity: 0; transform: translateY(-10px); }
-        }
-
-        /* SHARE */
-        .share-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.7);
-            z-index: 999;
-            display: none;
-        }
-
-        .share-box {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 14px;
-            padding: 20px;
-            z-index: 1000;
-            display: none;
-            width: 90%;
-            max-width: 380px;
-        }
-
-        .share-box h3 { margin-bottom: 10px; color: #38bdf8; font-size: 0.95rem; }
-
-        .share-box .link-box {
-            background: #0f172a;
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid #334155;
-            word-break: break-all;
-            margin-bottom: 10px;
-            font-family: monospace;
-            font-size: 0.75rem;
-        }
-
-        /* BADGE */
-        .btn-chat-wrapper {
-            position: relative;
-            display: none;
-        }
-
-        .chat-badge {
-            position: absolute;
-            top: -5px;
-            right: -5px;
-            background: #ef4444;
-            color: white;
-            border-radius: 50%;
-            width: 18px;
-            height: 18px;
-            font-size: 0.6rem;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-        }
-
-        /* FULLSCREEN */
-        .fullscreen-active header,
-        .fullscreen-active .broadcast-toolbar {
-            display: none !important;
-        }
-
-        .fullscreen-active .main-layout {
-            height: 100vh;
-            height: 100dvh;
-        }
-
-        .fullscreen-controls {
-            position: fixed;
-            bottom: 16px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(12px);
-            padding: 8px 16px;
-            border-radius: 30px;
-            display: none;
-            gap: 10px;
-            align-items: center;
-            z-index: 100;
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-
-        .fullscreen-controls.visible {
-            display: flex;
-            opacity: 1;
-        }
-
-        .fullscreen-controls .btn {
-            padding: 8px 14px;
-            font-size: 0.8rem;
-            border-radius: 20px;
-        }
-
-        /* ===== MOBILE ===== */
-        @media (max-width: 768px) {
-            .main-layout {
-                flex-direction: column;
-            }
-
-            .video-container {
-                flex: 1;
-                min-height: 0;
-                width: 100%;
-            }
-
-            .chat-panel {
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                top: auto;
-                height: 45%;
-                width: 100%;
-                border-left: none;
-                border-top: 1px solid #334155;
-                transform: translateY(0);
-                transition: transform 0.3s ease;
-                border-radius: 16px 16px 0 0;
-                z-index: 60;
-            }
-
-            .chat-panel.hidden-mobile {
-                transform: translateY(100%);
-            }
-
-            .chat-close { display: block; }
-            .btn-chat-wrapper { display: block; }
-
-            .broadcast-toolbar .btn-label { display: none; }
-
-            .fullscreen-controls {
-                bottom: 10px;
-                padding: 6px 12px;
-                gap: 8px;
-            }
-
-            .fullscreen-controls .btn {
-                padding: 6px 10px;
-                font-size: 0.7rem;
-            }
-
-            .notification-toast {
-                top: auto;
-                bottom: 10px;
-                right: 8px;
-                left: 8px;
-                max-width: none;
-                font-size: 0.75rem;
-            }
-        }
-
-        @media (max-width: 380px) {
-            .logo { font-size: 0.8rem; }
-            .btn { padding: 5px 8px; font-size: 0.7rem; }
-        }
-
-        @media (max-height: 500px) and (orientation: landscape) {
-            header { padding: 3px 8px; min-height: 34px; }
-            .logo { font-size: 0.75rem; }
-            .btn { padding: 4px 8px; font-size: 0.7rem; }
-
-            .main-layout { flex-direction: row; }
-
-            .video-container {
-                flex: 1;
-                height: 100%;
-            }
-
-            .chat-panel {
-                position: relative;
-                width: 240px;
-                height: 100%;
-                border-radius: 0;
-                transform: none;
-            }
-
-            .chat-panel.hidden-mobile {
-                display: none;
-            }
-        }
-    </style>
-</head>
-<body>
-    <header>
-        <div class="logo">&#127909; Stream Ninja</div>
-        <div class="header-btns">
-            <div class="btn-chat-wrapper">
-                <button class="btn btn-chat-toggle btn-sm" onclick="toggleChat()">&#128172;</button>
-                <span class="chat-badge" id="chatBadge">0</span>
-            </div>
-            <button class="btn btn-fullscreen btn-sm" onclick="toggleFullscreen()">&#9974;</button>
-            <button class="btn btn-share btn-sm" onclick="showShareBox()">&#128279;</button>
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
+app.config["ADMIN_PASSWORD"] = os.environ.get("ADMIN_PASSWORD", "admin2026")
+
+socketio = SocketIO(
+    app, cors_allowed_origins="*", async_mode="threading",
+    ping_timeout=60, ping_interval=20, max_http_buffer_size=10_000_000,
+    logger=False, engineio_logger=False,
+)
+
+BASE_DIR = Path(__file__).resolve().parent
+STREAMS_DIR = BASE_DIR / "streams"
+STREAMS_DIR.mkdir(exist_ok=True)
+
+active_streams = {}
+stream_viewers = {}
+chat_history   = {}
+server_stats   = {"total_streams": 0, "total_messages": 0, "started": time.time()}
+_lock = threading.Lock()
+
+QUALITIES = {
+    "1080p": {"res": "1920x1080", "vb": "5000k", "ab": "192k"},
+    "720p":  {"res": "1280x720",  "vb": "2500k", "ab": "128k"},
+    "480p":  {"res": "854x480",   "vb": "1200k", "ab": "96k"},
+    "360p":  {"res": "640x360",   "vb": "600k",  "ab": "64k"},
+}
+
+def _uptime():
+    s = int(time.time() - server_stats["started"])
+    h, r = divmod(s, 3600); m, s = divmod(r, 60)
+    return "%02d:%02d:%02d" % (h, m, s)
+
+def _master(sid):
+    sdir = STREAMS_DIR / sid
+    bw = {"1080p": 5200000, "720p": 2600000, "480p": 1300000, "360p": 650000}
+    rs = {"1080p": "1920x1080", "720p": "1280x720", "480p": "854x480", "360p": "640x360"}
+    lines = ["#EXTM3U"]
+    for q in QUALITIES:
+        if (sdir / (q + ".m3u8")).exists():
+            lines.append("#EXT-X-STREAM-INF:BANDWIDTH=" + str(bw[q]) + ",RESOLUTION=" + rs[q] + ",NAME=" + q)
+            lines.append(q + ".m3u8")
+    if len(lines) > 1:
+        (sdir / "master.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+def _cleanup(sid):
+    with _lock:
+        sdir = STREAMS_DIR / sid
+        if sdir.exists(): shutil.rmtree(sdir, ignore_errors=True)
+        active_streams.pop(sid, None)
+        stream_viewers.pop(sid, None)
+        chat_history.pop(sid, None)
+
+def _ts(v):
+    try: return datetime.datetime.fromtimestamp(float(v)).strftime("%H:%M:%S")
+    except: return "?"
+
+def _page(title, content, scripts="", head=""):
+    return render_template_string(
+        BASE_TPL, page_title=title,
+        page_content=content, page_scripts=scripts, page_head=head
+    )
+
+BASE_TPL = """<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ page_title }}</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13"></script>
+{{ page_head|safe }}
+</head><body>
+<nav class="navbar" id="main-navbar">
+  <a href="/" class="logo">StreamCaster</a>
+  <div class="nav-links">
+    <a href="/">Accueil</a><a href="/broadcast">Diffuser</a><a href="/admin">Admin</a>
+  </div>
+</nav>
+<main class="main-content">
+{% with messages=get_flashed_messages() %}{% if messages %}
+<div class="flash-box">{% for m in messages %}<div class="flash-msg">{{ m }}</div>{% endfor %}</div>
+{% endif %}{% endwith %}
+{{ page_content|safe }}
+</main>
+{{ page_scripts|safe }}
+</body></html>"""
+
+@app.errorhandler(404)
+def e404(e):
+    h  = "<!DOCTYPE html><html><head><meta charset=UTF-8><title>404</title>"
+    h += "<style>body{font-family:sans-serif;background:#0f0f23;color:#e0e0e0;text-align:center;padding:80px}"
+    h += "h1{font-size:5em;color:#a78bfa}a{color:#a78bfa}</style></head>"
+    h += "<body><h1>404</h1><p>Page introuvable</p><a href='/'>Retour</a></body></html>"
+    return h, 404
+
+@app.errorhandler(500)
+def e500(e):
+    h  = "<!DOCTYPE html><html><head><meta charset=UTF-8><title>500</title>"
+    h += "<style>body{font-family:sans-serif;background:#0f0f23;color:#e0e0e0;text-align:center;padding:80px}"
+    h += "h1{font-size:5em;color:#ef4444}a{color:#a78bfa}</style></head>"
+    h += "<body><h1>500</h1><p>Erreur interne</p><a href='/'>Retour</a></body></html>"
+    return h, 500
+
+@app.route("/")
+def index():
+    rows = ""
+    for s in active_streams.values():
+        rows += '<a href="/watch/' + s["id"] + '" class="card" data-id="' + s["id"] + '">'
+        rows += '<div class="thumb"><span class="lb">LIVE</span>'
+        rows += '<div class="tov"><span class="pi">&#9654;</span></div></div>'
+        rows += '<div class="cinfo"><h3>' + s["title"] + '</h3>'
+        rows += '<span id="vc-' + s["id"] + '">' + str(s["viewers"]) + ' viewers</span></div></a>'
+    empty_style = ' style="display:none"' if active_streams else ""
+    c = '<div class="home"><h1>Streams en direct</h1><div id="grid" class="grid">'
+    c += '<div id="empty" class="empty-home"' + empty_style + '>'
+    c += '<p>Aucun stream en direct...</p>'
+    c += '<a href="/broadcast" class="btn btn-p">Commencer a diffuser</a></div>'
+    c += rows + '</div></div>'
+    js = """<script>
+var socket=io({transports:["polling","websocket"],upgrade:true});
+function load(){
+  fetch("/api/streams").then(function(r){return r.json();}).then(function(st){
+    var g=document.getElementById("grid"),e=document.getElementById("empty");
+    if(!st.length){e.style.display="block";return;}e.style.display="none";
+    var ids={};st.forEach(function(s){ids[s.id]=true;});
+    var cs=g.querySelectorAll(".card");for(var i=0;i<cs.length;i++){if(!ids[cs[i].dataset.id])cs[i].remove();}
+    st.forEach(function(s){
+      var c=g.querySelector('[data-id="'+s.id+'"]');
+      if(!c){c=document.createElement("a");c.href="/watch/"+s.id;c.className="card";c.dataset.id=s.id;
+        c.innerHTML='<div class="thumb"><span class="lb">LIVE</span><div class="tov"><span class="pi">&#9654;</span></div></div><div class="cinfo"><h3>'+s.title+'</h3><span id="vc-'+s.id+'">'+s.viewers+' viewers</span></div>';
+        g.appendChild(c);}else{var v=document.getElementById("vc-"+s.id);if(v)v.textContent=s.viewers+" viewers";}
+    });}).catch(function(){});}
+load();setInterval(load,5000);
+socket.on("stream_created",load);socket.on("stream_ended",load);
+</script>"""
+    return _page("StreamCaster", c, js)
+
+@app.route("/broadcast")
+def broadcast_page():
+    c  = '<div class="bc"><h1>Centre de diffusion</h1><div class="bc-grid">'
+    c += '<div class="icard"><h3>Diffuser depuis votre PC</h3>'
+    c += '<p>URL du serveur :</p><div class="url-box" id="surl"></div>'
+    c += '<button class="btn btn-p" style="margin-top:10px;width:100%" id="copybtn">Copier l URL</button>'
+    c += '<div style="margin-top:20px"><p style="color:#a78bfa;font-weight:700;margin-bottom:8px">Instructions :</p>'
+    c += '<ol class="how"><li>Clonez le projet localement</li>'
+    c += '<li>Lancez python broadcaster.py</li>'
+    c += '<li>Collez cette URL dans le champ serveur</li>'
+    c += '<li>Selectionnez votre carte de capture USB</li>'
+    c += '<li>Cliquez sur Demarrer le Stream</li></ol></div></div>'
+    c += '<div class="icard"><h3>Streams actifs</h3><div id="asl"><p>Chargement...</p></div>'
+    c += '<h3 style="margin-top:24px">Stats</h3><div id="lstats" class="ls-grid"></div></div></div></div>'
+    js = """<script>
+document.getElementById("surl").textContent=window.location.origin;
+document.getElementById("copybtn").onclick=function(){
+  navigator.clipboard.writeText(document.getElementById("surl").textContent)
+  .then(function(){document.getElementById("copybtn").textContent="Copie!";}).catch(function(){});};
+function loadBc(){
+  fetch("/api/streams").then(function(r){return r.json();}).then(function(st){
+    var l=document.getElementById("asl");
+    if(!st.length){l.innerHTML="<p>Aucun stream actif</p>";return;}
+    l.innerHTML=st.map(function(s){return '<div class="asi"><a href="/watch/'+s.id+'">'+s.title+'</a><span style="margin-left:auto">'+s.viewers+'v</span></div>';}).join("");});
+  fetch("/api/stats").then(function(r){return r.json();}).then(function(d){
+    document.getElementById("lstats").innerHTML=
+      '<div class="lsi"><span>Streams</span><b>'+d.streams+'</b></div>'+
+      '<div class="lsi"><span>Viewers</span><b>'+d.viewers+'</b></div>'+
+      '<div class="lsi"><span>Messages</span><b>'+d.messages+'</b></div>'+
+      '<div class="lsi"><span>Uptime</span><b>'+d.uptime+'</b></div>';
+  }).catch(function(){});}
+loadBc();setInterval(loadBc,5000);
+</script>"""
+    return _page("Diffuser", c, js)
+
+@app.route("/watch/<sid>")
+def watch_page(sid):
+    s = active_streams.get(sid)
+    if not s: return redirect(url_for("index"))
+    js = "<script>" + WATCH_JS.replace("__SID__", sid).replace("__TITLE__", s["title"]) + "</script>"
+    return _page(s["title"], WATCH_HTML, js)
+
+@app.route("/admin", methods=["GET","POST"])
+def admin():
+    if request.method == "POST":
+        if request.form.get("password","") == app.config["ADMIN_PASSWORD"]:
+            session["admin"] = True; return redirect(url_for("admin"))
+        flash("Mot de passe incorrect")
+    if not session.get("admin"):
+        c  = '<div class="login-wrap"><div class="login-card"><h2>Administration</h2>'
+        c += '<form method="POST" action="/admin">'
+        c += '<div class="fg"><label>Mot de passe</label>'
+        c += '<input type="password" name="password" class="fi" autofocus placeholder="..."></div>'
+        c += '<button type="submit" class="btn btn-p" style="width:100%;margin-top:8px">Connexion</button>'
+        c += '</form></div></div>'
+        return _page("Admin", c)
+    rows = ""
+    for s in active_streams.values():
+        rows += "<tr><td><code>" + s["id"] + "</code></td>"
+        rows += "<td>" + s["title"] + "</td>"
+        rows += "<td>" + str(s["viewers"]) + "</td>"
+        rows += "<td>" + _ts(s["created"]) + "</td>"
+        rows += "<td>"
+        rows += '<a href="/watch/' + s["id"] + '" class="bsm bb" target="_blank">Voir</a> '
+        rows += '<form method="POST" action="/admin/kick/' + s["id"] + '" style="display:inline"'
+        rows += " onsubmit="return confirm('Arreter ?')">"
+        rows += '<button class="bsm br">Stop</button></form>'
+        rows += "</td></tr>"
+    tbl = ""
+    if rows:
+        tbl = '<table class="adm-tbl"><thead><tr><th>ID</th><th>Titre</th><th>Viewers</th><th>Debut</th><th>Actions</th></tr></thead><tbody>' + rows + "</tbody></table>"
+    else:
+        tbl = '<div class="empty">Aucun stream actif</div>'
+    tv = sum(len(v) for v in stream_viewers.values())
+    c  = '<div class="adm-wrap">'
+    c += '<div class="adm-top"><h1>Dashboard Admin</h1><a href="/admin/logout" class="btn btn-d">Deconnexion</a></div>'
+    c += '<div class="stat-cards">'
+    c += '<div class="sc"><div class="si">Live</div><div class="sv">' + str(len(active_streams)) + '</div><div class="sl2">Streams</div></div>'
+    c += '<div class="sc"><div class="si">View</div><div class="sv">' + str(tv) + '</div><div class="sl2">Viewers</div></div>'
+    c += '<div class="sc"><div class="si">Chat</div><div class="sv">' + str(server_stats["total_messages"]) + '</div><div class="sl2">Messages</div></div>'
+    c += '<div class="sc"><div class="si">Total</div><div class="sv">' + str(server_stats["total_streams"]) + '</div><div class="sl2">Streams</div></div>'
+    c += '<div class="sc"><div class="si">Up</div><div class="sv sm">' + _uptime() + '</div><div class="sl2">Uptime</div></div>'
+    c += '</div><div class="adm-sec"><h2>Streams en direct</h2>' + tbl + '</div>'
+    c += '<div class="adm-sec"><h2>Config</h2><div class="cfg-grid">'
+    c += '<div class="ci"><span class="ck">Worker</span><code>gthread</code></div>'
+    c += '<div class="ci"><span class="ck">async_mode</span><code>threading</code></div>'
+    c += '<div class="ci"><span class="ck">HLS latence</span><code>1s segments</code></div>'
+    c += '<div class="ci"><span class="ck">FullScreen</span><code>F / double-clic</code></div>'
+    c += '</div></div><p class="adm-ref">Actualisation toutes les 10s</p></div>'
+    return _page("Dashboard Admin", c, head='<meta http-equiv="refresh" content="10">')
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("admin", None); return redirect(url_for("index"))
+
+@app.route("/admin/kick/<sid>", methods=["POST"])
+def admin_kick(sid):
+    if not session.get("admin"): return jsonify({"error": "non autorise"}), 403
+    _cleanup(sid); socketio.emit("stream_ended", {"stream_id": sid})
+    flash("Stream " + sid + " arrete"); return redirect(url_for("admin"))
+
+@app.route("/api/streams")
+def api_streams(): return jsonify(list(active_streams.values()))
+
+@app.route("/api/stats")
+def api_stats():
+    return jsonify({"streams": len(active_streams),
+        "viewers": sum(len(v) for v in stream_viewers.values()),
+        "total_streams": server_stats["total_streams"],
+        "total_messages": server_stats["total_messages"], "uptime": _uptime()})
+
+@app.route("/api/stream/create", methods=["POST"])
+def api_create():
+    data = request.get_json(silent=True) or {}
+    sid = uuid.uuid4().hex[:8]; title = str(data.get("title","Stream"))[:80]
+    (STREAMS_DIR / sid).mkdir(parents=True, exist_ok=True)
+    meta = {"id": sid, "title": title, "created": time.time(), "status": "live", "viewers": 0}
+    with _lock:
+        active_streams[sid] = meta; stream_viewers[sid] = set()
+        chat_history[sid] = []; server_stats["total_streams"] += 1
+    socketio.emit("stream_created", meta)
+    return jsonify({"stream_id": sid, "status": "ok"})
+
+@app.route("/api/stream/<sid>/upload", methods=["POST"])
+def api_upload(sid):
+    if sid not in active_streams: return jsonify({"error": "stream inconnu"}), 404
+    raw = request.headers.get("X-Filename","")
+    if not raw: return jsonify({"error": "X-Filename manquant"}), 400
+    fname = Path(raw).name
+    if not fname.endswith((".m3u8",".ts")): return jsonify({"error": "type non autorise"}), 400
+    (STREAMS_DIR / sid / fname).write_bytes(request.data)
+    if fname.endswith(".m3u8"): _master(sid)
+    return jsonify({"ok": True})
+
+@app.route("/api/stream/<sid>/stop", methods=["POST"])
+def api_stop(sid):
+    if sid not in active_streams: return jsonify({"error": "inconnu"}), 404
+    _cleanup(sid); socketio.emit("stream_ended", {"stream_id": sid})
+    return jsonify({"status": "stopped"})
+
+@app.route("/api/stream/<sid>/info")
+def api_info(sid):
+    if sid not in active_streams: return jsonify({"error": "inconnu"}), 404
+    m = dict(active_streams[sid]); m["chat_count"] = len(chat_history.get(sid,[]))
+    return jsonify(m)
+
+@app.route("/streams/<sid>/<path:fn>")
+def serve_hls(sid, fn):
+    safe = Path(fn).name; sdir = STREAMS_DIR / sid
+    if not (sdir / safe).exists(): return Response("Not Found", status=404)
+    resp = send_from_directory(str(sdir), safe)
+    resp.headers["Cache-Control"] = "no-cache, no-store"
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    if safe.endswith(".m3u8"): resp.headers["Content-Type"] = "application/vnd.apple.mpegurl"
+    elif safe.endswith(".ts"):  resp.headers["Content-Type"] = "video/MP2T"
+    return resp
+
+@socketio.on("connect")
+def _conn(): pass
+
+@socketio.on("join_stream")
+def _join(data):
+    if not isinstance(data, dict): return
+    sid = data.get("stream_id",""); u = str(data.get("username","Anonyme"))[:30]
+    if not sid or sid not in active_streams: return
+    join_room(sid)
+    with _lock:
+        stream_viewers.setdefault(sid, set()).add(request.sid)
+        cnt = len(stream_viewers[sid]); active_streams[sid]["viewers"] = cnt
+    emit("chat_history", {"messages": chat_history.get(sid,[])[-50:]})
+    emit("system_msg", {"text": "Bienvenue " + u, "ts": time.time()}, to=sid)
+    emit("viewer_count", {"count": cnt}, to=sid)
+
+@socketio.on("leave_stream")
+def _leave(data):
+    if not isinstance(data, dict): return
+    sid = data.get("stream_id",""); leave_room(sid)
+    with _lock:
+        if sid in stream_viewers:
+            stream_viewers[sid].discard(request.sid); cnt = len(stream_viewers[sid])
+            if sid in active_streams: active_streams[sid]["viewers"] = cnt
+        else: cnt = 0
+    emit("viewer_count", {"count": cnt}, to=sid)
+
+@socketio.on("disconnect")
+def _disc():
+    rsid = request.sid
+    with _lock:
+        for s in stream_viewers.values(): s.discard(rsid)
+        for k, m in active_streams.items(): m["viewers"] = len(stream_viewers.get(k, set()))
+
+@socketio.on("chat_msg")
+def _msg(data):
+    if not isinstance(data, dict): return
+    sid = data.get("stream_id",""); u = str(data.get("username","Anonyme"))[:30]
+    text = str(data.get("text","")).strip()[:500]
+    if not text or not sid or sid not in active_streams: return
+    msg = {"username": u, "text": text, "ts": time.time(), "id": uuid.uuid4().hex[:6]}
+    with _lock:
+        chat_history.setdefault(sid,[]).append(msg)
+        chat_history[sid] = chat_history[sid][-300:]
+        server_stats["total_messages"] += 1
+    emit("new_chat_msg", msg, to=sid)
+
+# ── HTML Watch (plein ecran natif + faible latence) ──
+WATCH_HTML = """
+<div id="watch-root" class="watch-root">
+  <div class="pcol">
+    <div class="pfsw" id="pfsw">
+      <video id="vid" autoplay playsinline muted></video>
+      <div class="ov" id="ov">
+        <div class="ov-in">
+          <div class="spin"></div>
+          <p id="ovt">Connexion au stream...</p>
+          <p id="ovt2" style="font-size:.85em;margin-top:8px;opacity:.6">Demarrage en cours...</p>
         </div>
-    </header>
-
-    <div class="broadcast-toolbar" id="broadcastToolbar">
-        <select id="qualitySelect" class="quality-select" onchange="updateQuality()">
-            <option value="auto">Auto</option>
-            <option value="1080">1080p</option>
-            <option value="720" selected>720p</option>
-            <option value="480">480p</option>
-            <option value="360">360p</option>
-        </select>
-        <button id="cameraBtn" class="btn btn-broadcast btn-sm" onclick="startCamera()">
-            &#128247; <span class="btn-label">Camera</span>
-        </button>
-        <button id="screenBtn" class="btn btn-screen btn-sm" onclick="startScreen()">
-            &#128187; <span class="btn-label">Ecran</span>
-        </button>
-        <button id="captureBtn" class="btn btn-capture btn-sm" onclick="startCapture()">
-            &#127910; <span class="btn-label">Capture</span>
-        </button>
-        <button id="stopBtn" class="btn btn-stop btn-sm" onclick="stopBroadcast()" style="display:none;">
-            &#9632; Stop
-        </button>
-    </div>
-
-    <div class="main-layout" id="streamContainer">
-        <div class="video-container" id="videoContainer">
-            <div class="status-overlay">
-                <span class="dot" id="statusDot"></span>
-                <span id="statusText">Hors ligne</span>
-            </div>
-            <div class="viewers-count">
-                &#128065; <span id="viewersCount">0</span>
-            </div>
-            <div class="source-label" id="sourceLabel" style="display:none;"></div>
-
-            <div class="waiting-screen" id="waitingScreen">
-                <div class="waiting-icon">&#127909;</div>
-                <div class="waiting-text">En attente du direct...</div>
-            </div>
-
-            <video id="remoteVideo" autoplay playsinline style="display:none;"></video>
-            <video id="localVideo" autoplay playsinline muted style="display:none;"></video>
+      </div>
+      <div class="cbar" id="cbar">
+        <div class="prow">
+          <div class="pbg" id="pbg">
+            <div class="pbuf" id="pbuf"></div>
+            <div class="pp" id="pp"></div>
+            <div class="pt" id="pt"></div>
+          </div>
+          <span class="lpill">LIVE</span>
         </div>
-
-        <div class="chat-panel" id="chatPanel">
-            <div class="chat-header">
-                <span>&#128172; Chat en direct</span>
-                <button class="chat-close" onclick="toggleChat()">&#10005;</button>
-            </div>
-            <div class="chat-messages" id="chatMessages"></div>
-            <div class="chat-input-box">
-                <input type="text" id="chatInput" placeholder="Message..."
-                       onkeypress="if(event.key==='Enter') sendChatMessage()">
-                <button class="btn btn-broadcast btn-sm" onclick="sendChatMessage()">&#10148;</button>
-            </div>
+        <div class="crow">
+          <div class="cl">
+            <button class="cb" id="bpl" title="Lecture/Pause (Espace)">
+              <svg viewBox="0 0 24 24"><path id="plp" d="M6 4l15 8-15 8V4z"/></svg>
+            </button>
+            <button class="cb" id="bmu" title="Muet (M)">
+              <svg viewBox="0 0 24 24"><path id="mup" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+            </button>
+            <div class="vw"><input type="range" id="vol" min="0" max="1" step="0.02" value="1"></div>
+            <span class="ctime" id="ctime">00:00</span>
+            <span class="latency-badge" id="lat"></span>
+          </div>
+          <div class="cr">
+            <select class="csel" id="ssel">
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2x</option>
+            </select>
+            <select class="csel" id="qsel"><option value="-1">Auto</option></select>
+            <button class="cb cbt" id="bcht" title="Chat (C)">Chat</button>
+            <button class="cb" id="bpip" title="PiP">
+              <svg viewBox="0 0 24 24"><path d="M19 7h-8v6h8V7zm2-4H3c-1.1 0-2 .9-2 2v14c0 1.1.9 1.98 2 1.98h18c1.1 0 2-.88 2-1.98V5c0-1.1-.9-2-2-2zm0 16.01H3V4.98h18v14.03z"/></svg>
+            </button>
+            <button class="cb cbfs" id="bfs" title="Plein ecran (F)">
+              <svg viewBox="0 0 24 24" id="ice"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+              <svg viewBox="0 0 24 24" id="icc" style="display:none"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+            </button>
+          </div>
         </div>
+      </div>
+      <div class="cfs" id="cfs">
+        <div class="cfsh"><span>Chat</span><button class="cfsx" id="cfsx">X</button></div>
+        <div class="cfsm" id="cfsm"></div>
+        <div class="cfsi">
+          <input type="text" id="fsun" placeholder="Pseudo..." maxlength="20">
+          <div class="cfsir">
+            <input type="text" id="fsci" placeholder="Message..." maxlength="500" autocomplete="off">
+            <button id="fscs">OK</button>
+          </div>
+        </div>
+      </div>
     </div>
-
-    <div class="fullscreen-controls" id="fullscreenControls">
-        <button class="btn btn-chat-toggle" onclick="toggleChat()">&#128172; Chat</button>
-        <button class="btn btn-stop" onclick="exitFullscreen()">&#10005; Quitter</button>
+    <div class="pmeta" id="pmeta">
+      <div class="pml"><span class="lbsm">LIVE</span><h2 id="stitle">Stream</h2></div>
+      <span id="vc" class="pmr">0 viewers</span>
     </div>
-
-    <div class="share-overlay" id="shareOverlay" onclick="hideShareBox()"></div>
-    <div class="share-box" id="shareBox">
-        <h3>&#128279; Partager le live</h3>
-        <p style="margin-bottom:10px;color:#94a3b8;font-size:0.8rem;">Envoyez ce lien aux spectateurs :</p>
-        <div class="link-box" id="shareLink"></div>
-        <button class="btn btn-broadcast" onclick="copyLink()" style="width:100%;justify-content:center;margin-bottom:8px;">
-            Copier le lien
-        </button>
-        <button class="btn btn-stop" onclick="hideShareBox()" style="width:100%;justify-content:center;">
-            Fermer
-        </button>
+  </div>
+  <div class="chatcol" id="chatcol">
+    <div class="chath">
+      <h3>Chat en direct</h3>
+      <div class="nrow">
+        <label class="sw"><input type="checkbox" id="ntog" checked><span class="sl"></span></label>
+        <span>Notif</span>
+      </div>
     </div>
-
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script>
-        var socket = io();
-        var localStream = null;
-        var isBroadcaster = false;
-        var currentBroadcasterId = null;
-        var peerConnections = {};
-        var viewerPeerConnection = null;
-        var currentSource = '';
-        var originalTitle = document.title;
-        var unreadCount = 0;
-        var windowFocused = true;
-        var chatVisible = true;
-        var mobileChatUnread = 0;
-        var isFullscreen = false;
-        var fullscreenTimeout = null;
-
-        var cameraBtn = document.getElementById('cameraBtn');
-        var screenBtn = document.getElementById('screenBtn');
-        var captureBtn = document.getElementById('captureBtn');
-        var stopBtn = document.getElementById('stopBtn');
-        var localVideo = document.getElementById('localVideo');
-        var remoteVideo = document.getElementById('remoteVideo');
-        var statusDot = document.getElementById('statusDot');
-        var statusText = document.getElementById('statusText');
-        var chatMessages = document.getElementById('chatMessages');
-        var sourceLabel = document.getElementById('sourceLabel');
-        var viewersCount = document.getElementById('viewersCount');
-        var chatPanel = document.getElementById('chatPanel');
-        var chatBadge = document.getElementById('chatBadge');
-        var broadcastToolbar = document.getElementById('broadcastToolbar');
-        var waitingScreen = document.getElementById('waitingScreen');
-        var fullscreenControls = document.getElementById('fullscreenControls');
-        var videoContainer = document.getElementById('videoContainer');
-
-        var userId = 'User_' + Math.floor(Math.random() * 9000 + 1000);
-
-        var rtcConfig = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
-            ]
-        };
-
-        var qualityPresets = {
-            '1080': { width: 1920, height: 1080, frameRate: 30 },
-            '720':  { width: 1280, height: 720,  frameRate: 30 },
-            '480':  { width: 854,  height: 480,  frameRate: 24 },
-            '360':  { width: 640,  height: 360,  frameRate: 20 },
-            'auto': { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
-        };
-
-        function isMobile() { return window.innerWidth <= 768; }
-
-        // === FULLSCREEN ===
-        function toggleFullscreen() {
-            if (!isFullscreen) {
-                enterFullscreen();
-            } else {
-                exitFullscreen();
-            }
-        }
-
-        function enterFullscreen() {
-            var elem = document.documentElement;
-            if (elem.requestFullscreen) {
-                elem.requestFullscreen();
-            } else if (elem.webkitRequestFullscreen) {
-                elem.webkitRequestFullscreen();
-            } else if (elem.msRequestFullscreen) {
-                elem.msRequestFullscreen();
-            }
-            document.body.classList.add('fullscreen-active');
-            isFullscreen = true;
-            showFullscreenControls();
-
-            if (isMobile()) {
-                chatPanel.classList.add('hidden-mobile');
-                chatVisible = false;
-            }
-        }
-
-        function exitFullscreen() {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-            } else if (document.webkitExitFullscreen) {
-                document.webkitExitFullscreen();
-            } else if (document.msExitFullscreen) {
-                document.msExitFullscreen();
-            }
-            document.body.classList.remove('fullscreen-active');
-            isFullscreen = false;
-            fullscreenControls.classList.remove('visible');
-        }
-
-        document.addEventListener('fullscreenchange', function() {
-            if (!document.fullscreenElement) {
-                document.body.classList.remove('fullscreen-active');
-                isFullscreen = false;
-                fullscreenControls.classList.remove('visible');
-            }
-        });
-
-        function showFullscreenControls() {
-            fullscreenControls.classList.add('visible');
-            clearTimeout(fullscreenTimeout);
-            fullscreenTimeout = setTimeout(function() {
-                fullscreenControls.classList.remove('visible');
-            }, 4000);
-        }
-
-        document.addEventListener('mousemove', function() {
-            if (isFullscreen) showFullscreenControls();
-        });
-
-        document.addEventListener('touchstart', function() {
-            if (isFullscreen) showFullscreenControls();
-        });
-
-        // === CHAT ===
-        function toggleChat() {
-            if (chatVisible) {
-                chatPanel.classList.add('hidden-mobile');
-                chatVisible = false;
-            } else {
-                chatPanel.classList.remove('hidden-mobile');
-                chatVisible = true;
-                mobileChatUnread = 0;
-                chatBadge.style.display = 'none';
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            }
-        }
-
-        window.addEventListener('resize', function() {
-            if (!isMobile()) {
-                chatPanel.classList.remove('hidden-mobile');
-                chatVisible = true;
-                chatBadge.style.display = 'none';
-            }
-        });
-
-        // === SON ===
-        function playNotificationSound() {
-            try {
-                var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                var osc = audioCtx.createOscillator();
-                var gain = audioCtx.createGain();
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-                osc.frequency.setValueAtTime(1200, audioCtx.currentTime + 0.1);
-                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-                osc.start(audioCtx.currentTime);
-                osc.stop(audioCtx.currentTime + 0.3);
-            } catch(e) {}
-        }
-
-        // === ONGLET ===
-        window.addEventListener('focus', function() {
-            windowFocused = true;
-            unreadCount = 0;
-            document.title = originalTitle;
-        });
-        window.addEventListener('blur', function() { windowFocused = false; });
-
-        function updateTabNotification() {
-            if (!windowFocused) {
-                unreadCount++;
-                document.title = '(' + unreadCount + ') Nouveau msg - Stream Ninja';
-            }
-        }
-
-        // === TOAST ===
-        function showToast(message) {
-            var old = document.querySelectorAll('.notification-toast');
-            if (old.length > 2) old[0].parentNode.removeChild(old[0]);
-            var t = document.createElement('div');
-            t.className = 'notification-toast';
-            t.textContent = message;
-            document.body.appendChild(t);
-            setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 3000);
-        }
-
-        // === QUALITE ===
-        function getQualityConstraints() {
-            var q = document.getElementById('qualitySelect').value;
-            return qualityPresets[q] || qualityPresets['720'];
-        }
-
-        function updateQuality() {
-            if (!isBroadcaster || !localStream) return;
-            var q = getQualityConstraints();
-            var vt = localStream.getVideoTracks()[0];
-            if (vt) {
-                vt.applyConstraints({
-                    width: q.width, height: q.height, frameRate: q.frameRate
-                }).catch(function(e) { console.log('Qualite:', e); });
-            }
-        }
-
-        // === SOURCES ===
-        async function startCamera() {
-            var q = getQualityConstraints();
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: q.width, height: q.height, frameRate: q.frameRate },
-                    audio: true
-                });
-                currentSource = 'Camera';
-                startBroadcastWithStream();
-            } catch (err) { alert('Erreur camera : ' + err.message); }
-        }
-
-        async function startScreen() {
-            var q = getQualityConstraints();
-            try {
-                var ss = await navigator.mediaDevices.getDisplayMedia({
-                    video: { width: q.width, height: q.height, frameRate: q.frameRate },
-                    audio: true
-                });
-                try {
-                    var mic = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    var ctx = new AudioContext();
-                    var dest = ctx.createMediaStreamDestination();
-                    if (ss.getAudioTracks().length > 0) ctx.createMediaStreamSource(ss).connect(dest);
-                    ctx.createMediaStreamSource(mic).connect(dest);
-                    localStream = new MediaStream([
-                        ...ss.getVideoTracks(), ...dest.stream.getAudioTracks()
-                    ]);
-                } catch(e) { localStream = ss; }
-                currentSource = 'Ecran';
-                ss.getVideoTracks()[0].onended = function() { stopBroadcast(); };
-                startBroadcastWithStream();
-            } catch (err) { alert('Partage ecran refuse : ' + err.message); }
-        }
-
-        async function startCapture() {
-            var q = getQualityConstraints();
-            try {
-                var devs = await navigator.mediaDevices.enumerateDevices();
-                var vids = devs.filter(function(d) { return d.kind === 'videoinput'; });
-                if (vids.length === 0) { alert('Aucun peripherique video'); return; }
-                var cap = vids[vids.length - 1];
-                for (var i = 0; i < vids.length; i++) {
-                    var lb = vids[i].label.toLowerCase();
-                    if (lb.indexOf('capture') !== -1 || lb.indexOf('cam link') !== -1 ||
-                        lb.indexOf('elgato') !== -1 || lb.indexOf('avermedia') !== -1 ||
-                        lb.indexOf('hdmi') !== -1 || lb.indexOf('usb video') !== -1) {
-                        cap = vids[i]; break;
-                    }
-                }
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    video: { deviceId: { exact: cap.deviceId }, width: q.width, height: q.height, frameRate: q.frameRate },
-                    audio: true
-                });
-                currentSource = 'Capture';
-                startBroadcastWithStream();
-            } catch (err) { alert('Erreur capture : ' + err.message); }
-        }
-
-        function startBroadcastWithStream() {
-            waitingScreen.classList.add('hidden');
-            localVideo.style.display = 'block';
-            localVideo.srcObject = localStream;
-            remoteVideo.style.display = 'none';
-            sourceLabel.textContent = currentSource;
-            sourceLabel.style.display = 'block';
-            isBroadcaster = true;
-            cameraBtn.style.display = 'none';
-            screenBtn.style.display = 'none';
-            captureBtn.style.display = 'none';
-            stopBtn.style.display = 'flex';
-            socket.emit('start_broadcast', { source: currentSource });
-        }
-
-        function stopBroadcast() {
-            socket.emit('stop_broadcast');
-            stopLocalStream();
-        }
-
-        function stopLocalStream() {
-            if (localStream) {
-                localStream.getTracks().forEach(function(t) { t.stop(); });
-                localStream = null;
-            }
-            Object.values(peerConnections).forEach(function(pc) { pc.close(); });
-            peerConnections = {};
-            localVideo.style.display = 'none';
-            localVideo.srcObject = null;
-            remoteVideo.style.display = 'none';
-            remoteVideo.srcObject = null;
-            sourceLabel.style.display = 'none';
-            waitingScreen.classList.remove('hidden');
-            isBroadcaster = false;
-            currentSource = '';
-            cameraBtn.style.display = 'flex';
-            screenBtn.style.display = 'flex';
-            captureBtn.style.display = 'flex';
-            stopBtn.style.display = 'none';
-        }
-
-        // === SOCKET ===
-        socket.on('broadcaster_status', function(data) {
-            currentBroadcasterId = data.broadcaster_id;
-            viewersCount.textContent = data.viewers || 0;
-
-            if (currentBroadcasterId) {
-                if (currentBroadcasterId === socket.id) {
-                    statusDot.className = 'dot live';
-                    statusText.textContent = 'En direct';
-                    broadcastToolbar.classList.add('active');
-                } else {
-                    cameraBtn.className = 'btn btn-disabled btn-sm';
-                    cameraBtn.disabled = true;
-                    screenBtn.className = 'btn btn-disabled btn-sm';
-                    screenBtn.disabled = true;
-                    captureBtn.className = 'btn btn-disabled btn-sm';
-                    captureBtn.disabled = true;
-                    statusDot.className = 'dot live';
-                    statusText.textContent = 'En direct';
-                    broadcastToolbar.classList.remove('active');
-                    if (data.source) {
-                        sourceLabel.textContent = data.source;
-                        sourceLabel.style.display = 'block';
-                    }
-                    socket.emit('request_stream');
-                }
-            } else {
-                cameraBtn.className = 'btn btn-broadcast btn-sm';
-                cameraBtn.disabled = false;
-                screenBtn.className = 'btn btn-screen btn-sm';
-                screenBtn.disabled = false;
-                captureBtn.className = 'btn btn-capture btn-sm';
-                captureBtn.disabled = false;
-                statusDot.className = 'dot';
-                statusText.textContent = 'Hors ligne';
-                sourceLabel.style.display = 'none';
-                broadcastToolbar.classList.add('active');
-
-                if (isBroadcaster) {
-                    stopLocalStream();
-                } else if (viewerPeerConnection) {
-                    viewerPeerConnection.close();
-                    viewerPeerConnection = null;
-                    remoteVideo.style.display = 'none';
-                    remoteVideo.srcObject = null;
-                    waitingScreen.classList.remove('hidden');
-                }
-            }
-        });
-
-        socket.on('viewers_count', function(data) {
-            viewersCount.textContent = data.count;
-        });
-
-        // === WEBRTC ===
-        socket.on('new_viewer', async function(data) {
-            if (!isBroadcaster || !localStream) return;
-            var vid = data.viewer_id;
-            var pc = new RTCPeerConnection(rtcConfig);
-            peerConnections[vid] = pc;
-            localStream.getTracks().forEach(function(t) { pc.addTrack(t, localStream); });
-            pc.onicecandidate = function(e) {
-                if (e.candidate) socket.emit('candidate', { target: vid, candidate: e.candidate });
-            };
-            var offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            socket.emit('offer', { target: vid, offer: offer });
-        });
-
-        socket.on('offer', async function(data) {
-            viewerPeerConnection = new RTCPeerConnection(rtcConfig);
-            viewerPeerConnection.ontrack = function(e) {
-                waitingScreen.classList.add('hidden');
-                remoteVideo.style.display = 'block';
-                remoteVideo.srcObject = e.streams[0];
-            };
-            viewerPeerConnection.onicecandidate = function(e) {
-                if (e.candidate) socket.emit('candidate', { target: data.broadcaster_id, candidate: e.candidate });
-            };
-            await viewerPeerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-            var answer = await viewerPeerConnection.createAnswer();
-            await viewerPeerConnection.setLocalDescription(answer);
-            socket.emit('answer', { target: data.broadcaster_id, answer: answer });
-        });
-
-        socket.on('answer', async function(data) {
-            var pc = peerConnections[data.viewer_id];
-            if (pc) await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-        });
-
-        socket.on('candidate', async function(data) {
-            var pc = isBroadcaster ? peerConnections[data.from] : viewerPeerConnection;
-            if (pc && data.candidate) {
-                try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); }
-                catch (e) {}
-            }
-        });
-
-        socket.on('viewer_disconnected', function(data) {
-            if (peerConnections[data.viewer_id]) {
-                peerConnections[data.viewer_id].close();
-                delete peerConnections[data.viewer_id];
-            }
-        });
-
-        // === CHAT ===
-        function sendChatMessage() {
-            var input = document.getElementById('chatInput');
-            var msg = input.value.trim();
-            if (msg) {
-                socket.emit('chat_message', { user: userId, text: msg });
-                input.value = '';
-            }
-        }
-
-        socket.on('chat_message', function(data) {
-            var el = document.createElement('div');
-            el.className = 'chat-msg';
-            el.innerHTML = '<div class="author">' + escapeHtml(data.user) + '</div><div>' + escapeHtml(data.text) + '</div>';
-            chatMessages.appendChild(el);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-
-            if (data.user !== userId) {
-                playNotificationSound();
-                updateTabNotification();
-                if (isMobile() && !chatVisible) {
-                    mobileChatUnread++;
-                    chatBadge.textContent = mobileChatUnread;
-                    chatBadge.style.display = 'flex';
-                }
-                showToast(data.user + ': ' + data.text.substring(0, 40));
-            }
-        });
-
-        function escapeHtml(s) {
-            var d = document.createElement('div');
-            d.textContent = s;
-            return d.innerHTML;
-        }
-
-        // === SHARE ===
-        function showShareBox() {
-            document.getElementById('shareLink').textContent = window.location.href;
-            document.getElementById('shareBox').style.display = 'block';
-            document.getElementById('shareOverlay').style.display = 'block';
-        }
-
-        function hideShareBox() {
-            document.getElementById('shareBox').style.display = 'none';
-            document.getElementById('shareOverlay').style.display = 'none';
-        }
-
-        function copyLink() {
-            navigator.clipboard.writeText(window.location.href).then(function() {
-                showToast('Lien copie !');
-            });
-        }
-
-        // INIT
-        broadcastToolbar.classList.add('active');
-    </script>
-</body>
-</html>
+    <div class="chatm" id="chatm"></div>
+    <div class="chatia">
+      <input type="text" id="uname" placeholder="Pseudo..." maxlength="20">
+      <div class="mrow">
+        <input type="text" id="ci" placeholder="Message..." maxlength="500" autocomplete="off">
+        <button id="cs">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+<audio id="ns" preload="auto"><source src="/static/sounds/notification.wav" type="audio/wav"></audio>
 """
 
-@app.route('/')
-def index():
-    return render_template_string(HTML_PAGE)
+WATCH_JS = """
+var SID = "__SID__";
+var STREAM_TITLE = "__TITLE__";
+var socket = io({transports: ["polling","websocket"], upgrade: true});
+function G(id){return document.getElementById(id);}
+var vid=G("vid"), pfsw=G("pfsw"), ov=G("ov"), ovt=G("ovt"), ovt2=G("ovt2"),
+    cbar=G("cbar"), bpl=G("bpl"), plp=G("plp"), bmu=G("bmu"), mup=G("mup"),
+    vol=G("vol"), ctime=G("ctime"), lat=G("lat"), ssel=G("ssel"), qsel=G("qsel"),
+    bpip=G("bpip"), bfs=G("bfs"), ice=G("ice"), icc=G("icc"), bcht=G("bcht"),
+    pbg=G("pbg"), pbuf=G("pbuf"), pp=G("pp"), pt=G("pt"),
+    chatm=G("chatm"), ci=G("ci"), cs=G("cs"), uname=G("uname"), ntog=G("ntog"),
+    ns=G("ns"), vc=G("vc"), cfs=G("cfs"), cfsm=G("cfsm"), fsun=G("fsun"),
+    fsci=G("fsci"), fscs=G("fscs"), cfsx=G("cfsx"),
+    stitle=G("stitle");
 
-viewers = set()
-broadcast_source = ''
+if(stitle) stitle.textContent = STREAM_TITLE;
+var hls=null, ht=null, fsm=false, cfv=true;
+var retryCount = 0;
 
-@socketio.on('connect')
-def handle_connect():
-    global broadcaster_id, broadcast_source
-    viewers.add(request.sid)
-    emit('broadcaster_status', {
-        'broadcaster_id': broadcaster_id,
-        'viewers': len(viewers),
-        'source': broadcast_source
-    })
-    emit('viewers_count', {'count': len(viewers)}, broadcast=True)
+// ── HLS latence ultra-faible ──────────────────
+function initP(){
+  var src = "/streams/"+SID+"/master.m3u8";
+  if(Hls.isSupported()){
+    if(hls){hls.destroy();hls=null;}
+    hls = new Hls({
+      // Latence minimale
+      lowLatencyMode: true,
+      liveSyncDurationCount: 1,
+      liveMaxLatencyDurationCount: 3,
+      maxLiveSyncPlaybackRate: 1.5,
+      // Buffer minimal pour demarrage rapide
+      maxBufferLength: 4,
+      maxMaxBufferLength: 8,
+      backBufferLength: 4,
+      // Demarrage immediat
+      startLevel: -1,
+      abrEwmaDefaultEstimate: 1000000,
+      // Retry agressif
+      manifestLoadingMaxRetry: 20,
+      manifestLoadingRetryDelay: 500,
+      levelLoadingMaxRetry: 20,
+      fragLoadingMaxRetry: 20,
+      fragLoadingRetryDelay: 500,
+      // Pas de saut de fragment
+      enableSoftwareAES: true,
+    });
+    hls.loadSource(src);
+    hls.attachMedia(vid);
+    hls.on(Hls.Events.MANIFEST_PARSED, function(e,d){
+      hideO();
+      qsel.innerHTML = '<option value="-1">Auto</option>';
+      d.levels.forEach(function(lv,i){
+        var o=document.createElement("option"); o.value=i;
+        o.textContent=lv.height+"p"; qsel.appendChild(o);
+      });
+      // Demarrer sans attendre
+      vid.muted = false;
+      vid.play().catch(function(){ vid.muted=true; vid.play().catch(function(){}); });
+      retryCount = 0;
+    });
+    hls.on(Hls.Events.ERROR, function(e,d){
+      if(d.fatal){
+        retryCount++;
+        ovt.textContent = "Reconnexion... ("+retryCount+")";
+        ovt2.textContent = "Le stream demarre, patientez...";
+        ov.style.display = "flex"; ov.style.opacity = "1";
+        var sp = ov.querySelector(".spin"); if(sp) sp.style.display="block";
+        setTimeout(tryI, Math.min(1000 * retryCount, 5000));
+      }
+    });
+    // Suivi latence temps reel
+    hls.on(Hls.Events.FRAG_BUFFERED, function(){
+      if(vid.buffered.length && vid.duration){
+        var edge = hls.liveSyncPosition || vid.duration;
+        var delay = edge - vid.currentTime;
+        if(delay > 0) lat.textContent = Math.round(delay)+"s";
+      }
+    });
+    qsel.onchange = function(){ hls.currentLevel = parseInt(qsel.value); };
+  } else if(vid.canPlayType("application/vnd.apple.mpegurl")){
+    vid.src = src;
+    vid.addEventListener("loadedmetadata", hideO, {once:true});
+    vid.play().catch(function(){});
+  }
+}
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    global broadcaster_id, broadcast_source
-    viewers.discard(request.sid)
-    if request.sid == broadcaster_id:
-        broadcaster_id = None
-        broadcast_source = ''
-        emit('broadcaster_status', {
-            'broadcaster_id': None,
-            'viewers': len(viewers),
-            'source': ''
-        }, broadcast=True)
-    else:
-        if broadcaster_id:
-            emit('viewer_disconnected', {'viewer_id': request.sid}, room=broadcaster_id)
-    emit('viewers_count', {'count': len(viewers)}, broadcast=True)
+function tryI(){
+  ovt.textContent = "Connexion au stream...";
+  ovt2.textContent = "Demarrage en cours...";
+  fetch("/streams/"+SID+"/master.m3u8", {cache:"no-store"})
+    .then(function(r){
+      if(r.ok){ initP(); }
+      else {
+        ovt2.textContent = "En attente du stream...";
+        setTimeout(tryI, 1000);
+      }
+    }).catch(function(){ setTimeout(tryI, 1000); });
+}
+tryI();
 
-@socketio.on('start_broadcast')
-def handle_start_broadcast(data=None):
-    global broadcaster_id, broadcast_source
-    if broadcaster_id is None:
-        broadcaster_id = request.sid
-        broadcast_source = data.get('source', 'Camera') if data else 'Camera'
-        emit('broadcaster_status', {
-            'broadcaster_id': broadcaster_id,
-            'viewers': len(viewers),
-            'source': broadcast_source
-        }, broadcast=True)
+function hideO(){
+  ov.style.opacity = "0";
+  setTimeout(function(){ ov.style.display = "none"; }, 400);
+}
+function showO(m){
+  ovt.textContent = m;
+  var s=ov.querySelector(".spin"); if(s) s.style.display="none";
+  ov.style.display = "flex"; ov.style.opacity = "1";
+}
 
-@socketio.on('stop_broadcast')
-def handle_stop_broadcast():
-    global broadcaster_id, broadcast_source
-    if request.sid == broadcaster_id:
-        broadcaster_id = None
-        broadcast_source = ''
-        emit('broadcaster_status', {
-            'broadcaster_id': None,
-            'viewers': len(viewers),
-            'source': ''
-        }, broadcast=True)
+// ── Controles ─────────────────────────────────
+var IPL="M6 4l15 8-15 8V4z", IPA="M6 19h4V5H6v14zm8-14v14h4V5h-4z",
+    IVO="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z",
+    IMU="M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06A8.99 8.99 0 0 0 17.73 19l2 2L21 19.73l-18-18z";
 
-@socketio.on('request_stream')
-def handle_request_stream():
-    global broadcaster_id
-    if broadcaster_id:
-        emit('new_viewer', {'viewer_id': request.sid}, room=broadcaster_id)
+bpl.onclick = function(){ vid.paused ? vid.play() : vid.pause(); };
+vid.addEventListener("play",  function(){ plp.setAttribute("d",IPA); });
+vid.addEventListener("pause", function(){ plp.setAttribute("d",IPL); });
+vid.addEventListener("dblclick", tFS);
 
-@socketio.on('offer')
-def handle_offer(data):
-    emit('offer', {'offer': data['offer'], 'broadcaster_id': request.sid}, room=data['target'])
+bmu.onclick = function(){
+  vid.muted = !vid.muted;
+  mup.setAttribute("d", vid.muted ? IMU : IVO);
+  vol.value = vid.muted ? 0 : vid.volume;
+};
+vol.oninput = function(){
+  vid.volume = parseFloat(vol.value);
+  vid.muted = (vid.volume === 0);
+  mup.setAttribute("d", vid.muted ? IMU : IVO);
+};
+ssel.onchange = function(){ vid.playbackRate = parseFloat(ssel.value); };
 
-@socketio.on('answer')
-def handle_answer(data):
-    emit('answer', {'answer': data['answer'], 'viewer_id': request.sid}, room=data['target'])
+vid.addEventListener("timeupdate", function(){
+  var t = Math.floor(vid.currentTime);
+  ctime.textContent = String(Math.floor(t/60)).padStart(2,"0")+":"+String(t%60).padStart(2,"0");
+  if(vid.duration){
+    var p = (vid.currentTime/vid.duration)*100;
+    pp.style.width = p+"%"; pt.style.left = p+"%";
+    if(vid.buffered.length)
+      pbuf.style.width = (vid.buffered.end(vid.buffered.length-1)/vid.duration*100)+"%";
+  }
+});
+pbg.onclick = function(e){
+  if(!vid.duration) return;
+  var r = pbg.getBoundingClientRect();
+  vid.currentTime = ((e.clientX-r.left)/r.width)*vid.duration;
+};
+bpip.onclick = function(){
+  if(document.pictureInPictureElement) document.exitPictureInPicture().catch(function(){});
+  else vid.requestPictureInPicture().catch(function(){});
+};
 
-@socketio.on('candidate')
-def handle_candidate(data):
-    emit('candidate', {'candidate': data['candidate'], 'from': request.sid}, room=data['target'])
+// ── VRAI PLEIN ECRAN NATIF ────────────────────
+function tFS(){
+  if(!document.fullscreenElement && !document.webkitFullscreenElement) eFS();
+  else xFS();
+}
+function eFS(){
+  var el = pfsw;
+  var fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+  if(fn) fn.call(el);
+}
+function xFS(){
+  var fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+  if(fn) fn.call(document);
+}
+function onFC(){
+  fsm = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  if(fsm){
+    document.body.classList.add("is-fs");
+    pfsw.classList.add("fs-a");
+    ice.style.display = "none"; icc.style.display = "block";
+    fsun.value = uname.value;
+    cfs.style.display = cfv ? "flex" : "none";
+    sH();
+  } else {
+    document.body.classList.remove("is-fs");
+    pfsw.classList.remove("fs-a");
+    ice.style.display = "block"; icc.style.display = "none";
+    cfs.style.display = "none";
+    cbar.classList.remove("ch");
+    document.body.style.cursor = "";
+    cH();
+  }
+}
+["fullscreenchange","webkitfullscreenchange","mozfullscreenchange","MSFullscreenChange"]
+  .forEach(function(ev){ document.addEventListener(ev, onFC); });
+bfs.onclick = tFS;
 
-@socketio.on('chat_message')
-def handle_chat_message(data):
-    emit('chat_message', data, broadcast=True)
+// Auto-hide controls en fullscreen
+function sH(){
+  cH();
+  cbar.classList.remove("ch"); document.body.style.cursor = "";
+  ht = setTimeout(function(){
+    if(fsm){ cbar.classList.add("ch"); document.body.style.cursor = "none"; }
+  }, 3000);
+}
+function cH(){ if(ht){ clearTimeout(ht); ht=null; } }
+pfsw.addEventListener("mousemove",    function(){ if(fsm) sH(); });
+cbar.addEventListener("mouseenter",   function(){ cH(); cbar.classList.remove("ch"); document.body.style.cursor=""; });
+cbar.addEventListener("mouseleave",   function(){ if(fsm) sH(); });
+cfs.addEventListener("mouseenter",    function(){ cH(); });
+cfs.addEventListener("mouseleave",    function(){ if(fsm) sH(); });
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    socketio.run(app, host='0.0.0.0', port=port)
+// Toggle chat fullscreen
+function tCF(){
+  cfv = !cfv;
+  cfs.style.display = cfv ? "flex" : "none";
+  bcht.style.opacity = cfv ? "1" : "0.45";
+}
+bcht.onclick = tCF; cfsx.onclick = tCF;
+
+// Raccourcis clavier
+document.addEventListener("keydown", function(e){
+  var tag = document.activeElement.tagName;
+  if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT") return;
+  if(e.key==="f"||e.key==="F"){ e.preventDefault(); tFS(); }
+  else if(e.key===" "||e.key==="k"||e.key==="K"){ e.preventDefault(); vid.paused?vid.play():vid.pause(); }
+  else if(e.key==="m"||e.key==="M"){ e.preventDefault(); vid.muted=!vid.muted; mup.setAttribute("d",vid.muted?IMU:IVO); vol.value=vid.muted?0:vid.volume; }
+  else if(e.key==="ArrowUp"){ e.preventDefault(); vid.volume=Math.min(1,vid.volume+0.1); vol.value=vid.volume; }
+  else if(e.key==="ArrowDown"){ e.preventDefault(); vid.volume=Math.max(0,vid.volume-0.1); vol.value=vid.volume; }
+  else if((e.key==="c"||e.key==="C")&&fsm){ e.preventDefault(); tCF(); }
+  else if(e.key==="Escape"&&fsm){ e.preventDefault(); xFS(); }
+});
+
+// ── Chat ──────────────────────────────────────
+uname.value = localStorage.getItem("sc_un") || "";
+socket.on("connect", function(){
+  socket.emit("join_stream", {stream_id:SID, username:uname.value.trim()||"Anonyme"});
+});
+socket.on("connect_error", function(e){ console.warn("Socket:", e.message); });
+socket.on("chat_history", function(d){
+  d.messages.forEach(function(m){ aM(chatm,m,false); });
+  chatm.scrollTop = chatm.scrollHeight;
+  d.messages.slice(-30).forEach(function(m){ aM(cfsm,m,false); });
+  cfsm.scrollTop = cfsm.scrollHeight;
+});
+socket.on("new_chat_msg", function(m){
+  aM(chatm,m,true); chatm.scrollTop=chatm.scrollHeight;
+  aM(cfsm,m,true); cfsm.scrollTop=cfsm.scrollHeight;
+  if(ntog.checked && m.username!==(uname.value.trim()||"Anonyme")) pN(m.username,m.text);
+});
+socket.on("system_msg", function(d){
+  [chatm,cfsm].forEach(function(el){
+    var div=document.createElement("div"); div.className="smsg"; div.textContent=d.text;
+    el.appendChild(div); el.scrollTop=el.scrollHeight;
+  });
+});
+socket.on("viewer_count", function(d){ vc.textContent = d.count+" viewers"; });
+socket.on("stream_ended", function(d){ if(d.stream_id===SID) showO("Stream termine"); });
+
+function aM(c,m,an){
+  var d=document.createElement("div"); d.className="cm"+(an?" cmn":"");
+  var t=new Date(m.ts*1000).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  d.innerHTML='<span class="ct">'+t+'</span><span class="cu">'+esc(m.username)+'</span><span class="cx">'+esc(m.text)+'</span>';
+  c.appendChild(d); while(c.children.length>200) c.removeChild(c.firstChild);
+}
+function esc(s){ var d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+function sM(i,u){
+  var t=i.value.trim(); if(!t) return;
+  var n=u.value.trim()||"Anonyme";
+  localStorage.setItem("sc_un",n); uname.value=n; fsun.value=n;
+  socket.emit("chat_msg",{stream_id:SID,username:n,text:t}); i.value="";
+}
+cs.onclick  = function(){ sM(ci,uname); };
+ci.addEventListener("keypress", function(e){ if(e.key==="Enter") sM(ci,uname); });
+fscs.onclick = function(){ sM(fsci,fsun); };
+fsci.addEventListener("keypress", function(e){ if(e.key==="Enter") sM(fsci,fsun); });
+uname.addEventListener("change", function(){ fsun.value=uname.value; });
+fsun.addEventListener("change",  function(){ uname.value=fsun.value; });
+function pN(u,t){
+  try{ ns.currentTime=0; ns.play().catch(function(){}); }catch(e){}
+  if("Notification"in window&&Notification.permission==="granted")
+    new Notification("Message de "+u,{body:t,silent:true});
+}
+if("Notification"in window&&Notification.permission==="default") Notification.requestPermission();
+"""
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    print("StreamCaster http://0.0.0.0:" + str(port))
+    socketio.run(app, host="0.0.0.0", port=port, debug=False,
+        use_reloader=False, log_output=True, allow_unsafe_werkzeug=True)

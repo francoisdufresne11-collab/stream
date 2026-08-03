@@ -1,5 +1,9 @@
-flask
-flask-socketio
-gunicorn
-gevent
-gevent-websocket
+flask==3.0.3
+flask-socketio==5.3.6
+python-socketio==5.11.2
+python-engineio==4.9.1
+simple-websocket==1.1.0
+gunicorn==22.0.0
+requests==2.32.3
+Pillow==10.4.0
+opencv-python-headless==4.10.0.84
