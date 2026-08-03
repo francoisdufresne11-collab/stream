@@ -3,6 +3,7 @@ services:
     name: streamcaster
     runtime: docker
     dockerfilePath: ./Dockerfile
+    startCommand: gunicorn --worker-class gthread --workers 1 --threads 100 --bind 0.0.0.0:$PORT --timeout 120 --keep-alive 5 --log-level info --access-logfile - --error-logfile - app:app
     envVars:
       - key: SECRET_KEY
         generateValue: true
@@ -11,4 +12,3 @@ services:
     healthCheckPath: /
     autoDeploy: true
     plan: starter
-    # PAS de startCommand : Render utilise le CMD du Dockerfile
