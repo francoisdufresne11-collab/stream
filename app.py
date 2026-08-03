@@ -24,7 +24,7 @@ socketio = SocketIO(
     logger=False, engineio_logger=False,
 )
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR    = Path(__file__).resolve().parent
 STREAMS_DIR = BASE_DIR / "streams"
 STREAMS_DIR.mkdir(exist_ok=True)
 
@@ -103,35 +103,26 @@ BASE_TPL = """<!DOCTYPE html>
 
 @app.errorhandler(404)
 def e404(e):
-    h  = "<!DOCTYPE html><html><head><meta charset=UTF-8><title>404</title>"
-    h += "<style>body{font-family:sans-serif;background:#0f0f23;color:#e0e0e0;text-align:center;padding:80px}"
-    h += "h1{font-size:5em;color:#a78bfa}a{color:#a78bfa}</style></head>"
-    h += "<body><h1>404</h1><p>Page introuvable</p><a href='/'>Retour</a></body></html>"
-    return h, 404
+    return "<!DOCTYPE html><html><head><meta charset=UTF-8><title>404</title><style>body{font-family:sans-serif;background:#0f0f23;color:#e0e0e0;text-align:center;padding:80px}h1{font-size:5em;color:#a78bfa}a{color:#a78bfa}</style></head><body><h1>404</h1><p>Page introuvable</p><a href='/'>Retour</a></body></html>", 404
 
 @app.errorhandler(500)
 def e500(e):
-    h  = "<!DOCTYPE html><html><head><meta charset=UTF-8><title>500</title>"
-    h += "<style>body{font-family:sans-serif;background:#0f0f23;color:#e0e0e0;text-align:center;padding:80px}"
-    h += "h1{font-size:5em;color:#ef4444}a{color:#a78bfa}</style></head>"
-    h += "<body><h1>500</h1><p>Erreur interne</p><a href='/'>Retour</a></body></html>"
-    return h, 500
+    return "<!DOCTYPE html><html><head><meta charset=UTF-8><title>500</title><style>body{font-family:sans-serif;background:#0f0f23;color:#e0e0e0;text-align:center;padding:80px}h1{font-size:5em;color:#ef4444}a{color:#a78bfa}</style></head><body><h1>500</h1><p>Erreur interne</p><a href='/'>Retour</a></body></html>", 500
 
 @app.route("/")
 def index():
     rows = ""
     for s in active_streams.values():
         rows += '<a href="/watch/' + s["id"] + '" class="card" data-id="' + s["id"] + '">'
-        rows += '<div class="thumb"><span class="lb">LIVE</span>'
-        rows += '<div class="tov"><span class="pi">&#9654;</span></div></div>'
+        rows += '<div class="thumb"><span class="lb">LIVE</span><div class="tov"><span class="pi">&#9654;</span></div></div>'
         rows += '<div class="cinfo"><h3>' + s["title"] + '</h3>'
         rows += '<span id="vc-' + s["id"] + '">' + str(s["viewers"]) + ' viewers</span></div></a>'
-    empty_style = ' style="display:none"' if active_streams else ""
-    c = '<div class="home"><h1>Streams en direct</h1><div id="grid" class="grid">'
-    c += '<div id="empty" class="empty-home"' + empty_style + '>'
+    es = ' style="display:none"' if active_streams else ""
+    c  = '<div class="home"><h1>Streams en direct</h1><div id="grid" class="grid">'
+    c += '<div id="empty" class="empty-home"' + es + '>'
     c += '<p>Aucun stream en direct...</p>'
     c += '<a href="/broadcast" class="btn btn-p">Commencer a diffuser</a></div>'
-    c += rows + '</div></div>'
+    c += rows + "</div></div>"
     js = """<script>
 var socket=io({transports:["polling","websocket"],upgrade:true});
 function load(){
@@ -190,7 +181,7 @@ loadBc();setInterval(loadBc,5000);
 def watch_page(sid):
     s = active_streams.get(sid)
     if not s: return redirect(url_for("index"))
-    js = "<script>" + WATCH_JS.replace("__SID__", sid).replace("__TITLE__", s["title"]) + "</script>"
+    js = "<script>" + WATCH_JS.replace("__SID__", sid).replace("__TITLE__", s["title"].replace('"', '\"')) + "</script>"
     return _page(s["title"], WATCH_HTML, js)
 
 @app.route("/admin", methods=["GET","POST"])
@@ -215,8 +206,7 @@ def admin():
         rows += "<td>" + _ts(s["created"]) + "</td>"
         rows += "<td>"
         rows += '<a href="/watch/' + s["id"] + '" class="bsm bb" target="_blank">Voir</a> '
-        rows += '<form method="POST" action="/admin/kick/' + s["id"] + '" style="display:inline"'
-        rows += " onsubmit="return confirm('Arreter ?')">"
+        rows += '<form method="POST" action="/admin/kick/' + s["id"] + '" style="display:inline" onsubmit="return confirm('Arreter ?')">'
         rows += '<button class="bsm br">Stop</button></form>'
         rows += "</td></tr>"
     tbl = ""
@@ -237,8 +227,8 @@ def admin():
     c += '<div class="adm-sec"><h2>Config</h2><div class="cfg-grid">'
     c += '<div class="ci"><span class="ck">Worker</span><code>gthread</code></div>'
     c += '<div class="ci"><span class="ck">async_mode</span><code>threading</code></div>'
-    c += '<div class="ci"><span class="ck">HLS latence</span><code>1s segments</code></div>'
     c += '<div class="ci"><span class="ck">FullScreen</span><code>F / double-clic</code></div>'
+    c += '<div class="ci"><span class="ck">Son</span><code>Autoplay + unmute</code></div>'
     c += '</div></div><p class="adm-ref">Actualisation toutes les 10s</p></div>'
     return _page("Dashboard Admin", c, head='<meta http-equiv="refresh" content="10">')
 
@@ -355,27 +345,43 @@ def _msg(data):
         server_stats["total_messages"] += 1
     emit("new_chat_msg", msg, to=sid)
 
-# ── HTML Watch (plein ecran natif + faible latence) ──
+# ─────────────────────────────────────────────
+# HTML WATCH — pas de chat en fullscreen
+# ─────────────────────────────────────────────
 WATCH_HTML = """
-<div id="watch-root" class="watch-root">
-  <div class="pcol">
+<div class="watch-root" id="watch-root">
+
+  <!-- PLAYER (colonne gauche) -->
+  <div class="pcol" id="pcol">
+
+    <!-- Wrapper fullscreen : UNIQUEMENT la video + controls -->
     <div class="pfsw" id="pfsw">
-      <video id="vid" autoplay playsinline muted></video>
+      <video id="vid" autoplay playsinline></video>
+
+      <!-- Overlay chargement -->
       <div class="ov" id="ov">
         <div class="ov-in">
           <div class="spin"></div>
           <p id="ovt">Connexion au stream...</p>
-          <p id="ovt2" style="font-size:.85em;margin-top:8px;opacity:.6">Demarrage en cours...</p>
+          <p id="ovt2" style="font-size:.82em;margin-top:6px;opacity:.55">Demarrage en cours...</p>
         </div>
       </div>
+
+      <!-- Bouton son (visible quand mute par autoplay) -->
+      <div class="unmute-btn" id="unmute-btn">
+        <button onclick="doUnmute()">&#128266; Cliquez pour activer le son</button>
+      </div>
+
+      <!-- Barre de controles -->
       <div class="cbar" id="cbar">
         <div class="prow">
           <div class="pbg" id="pbg">
             <div class="pbuf" id="pbuf"></div>
-            <div class="pp" id="pp"></div>
-            <div class="pt" id="pt"></div>
+            <div class="pp"   id="pp"></div>
+            <div class="pt"   id="pt"></div>
           </div>
           <span class="lpill">LIVE</span>
+          <span class="lat-badge" id="lat"></span>
         </div>
         <div class="crow">
           <div class="cl">
@@ -385,9 +391,10 @@ WATCH_HTML = """
             <button class="cb" id="bmu" title="Muet (M)">
               <svg viewBox="0 0 24 24"><path id="mup" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
             </button>
-            <div class="vw"><input type="range" id="vol" min="0" max="1" step="0.02" value="1"></div>
+            <div class="vw">
+              <input type="range" id="vol" min="0" max="1" step="0.02" value="1">
+            </div>
             <span class="ctime" id="ctime">00:00</span>
-            <span class="latency-badge" id="lat"></span>
           </div>
           <div class="cr">
             <select class="csel" id="ssel">
@@ -397,10 +404,6 @@ WATCH_HTML = """
               <option value="2">2x</option>
             </select>
             <select class="csel" id="qsel"><option value="-1">Auto</option></select>
-            <button class="cb cbt" id="bcht" title="Chat (C)">Chat</button>
-            <button class="cb" id="bpip" title="PiP">
-              <svg viewBox="0 0 24 24"><path d="M19 7h-8v6h8V7zm2-4H3c-1.1 0-2 .9-2 2v14c0 1.1.9 1.98 2 1.98h18c1.1 0 2-.88 2-1.98V5c0-1.1-.9-2-2-2zm0 16.01H3V4.98h18v14.03z"/></svg>
-            </button>
             <button class="cb cbfs" id="bfs" title="Plein ecran (F)">
               <svg viewBox="0 0 24 24" id="ice"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
               <svg viewBox="0 0 24 24" id="icc" style="display:none"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
@@ -408,23 +411,19 @@ WATCH_HTML = """
           </div>
         </div>
       </div>
-      <div class="cfs" id="cfs">
-        <div class="cfsh"><span>Chat</span><button class="cfsx" id="cfsx">X</button></div>
-        <div class="cfsm" id="cfsm"></div>
-        <div class="cfsi">
-          <input type="text" id="fsun" placeholder="Pseudo..." maxlength="20">
-          <div class="cfsir">
-            <input type="text" id="fsci" placeholder="Message..." maxlength="500" autocomplete="off">
-            <button id="fscs">OK</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </div><!-- /pfsw -->
+
+    <!-- Meta sous le player (hors fullscreen) -->
     <div class="pmeta" id="pmeta">
-      <div class="pml"><span class="lbsm">LIVE</span><h2 id="stitle">Stream</h2></div>
+      <div class="pml">
+        <span class="lbsm">LIVE</span>
+        <h2 id="stitle">Stream</h2>
+      </div>
       <span id="vc" class="pmr">0 viewers</span>
     </div>
-  </div>
+  </div><!-- /pcol -->
+
+  <!-- CHAT (hors fullscreen uniquement) -->
   <div class="chatcol" id="chatcol">
     <div class="chath">
       <h3>Chat en direct</h3>
@@ -438,288 +437,319 @@ WATCH_HTML = """
       <input type="text" id="uname" placeholder="Pseudo..." maxlength="20">
       <div class="mrow">
         <input type="text" id="ci" placeholder="Message..." maxlength="500" autocomplete="off">
-        <button id="cs">OK</button>
+        <button id="cs">&#10148;</button>
       </div>
     </div>
   </div>
-</div>
+
+</div><!-- /watch-root -->
 <audio id="ns" preload="auto"><source src="/static/sounds/notification.wav" type="audio/wav"></audio>
 """
 
 WATCH_JS = """
-var SID = "__SID__";
-var STREAM_TITLE = "__TITLE__";
-var socket = io({transports: ["polling","websocket"], upgrade: true});
+var SID   = "__SID__";
+var TITLE = "__TITLE__";
+
+var socket = io({transports:["polling","websocket"],upgrade:true});
 function G(id){return document.getElementById(id);}
-var vid=G("vid"), pfsw=G("pfsw"), ov=G("ov"), ovt=G("ovt"), ovt2=G("ovt2"),
-    cbar=G("cbar"), bpl=G("bpl"), plp=G("plp"), bmu=G("bmu"), mup=G("mup"),
-    vol=G("vol"), ctime=G("ctime"), lat=G("lat"), ssel=G("ssel"), qsel=G("qsel"),
-    bpip=G("bpip"), bfs=G("bfs"), ice=G("ice"), icc=G("icc"), bcht=G("bcht"),
-    pbg=G("pbg"), pbuf=G("pbuf"), pp=G("pp"), pt=G("pt"),
-    chatm=G("chatm"), ci=G("ci"), cs=G("cs"), uname=G("uname"), ntog=G("ntog"),
-    ns=G("ns"), vc=G("vc"), cfs=G("cfs"), cfsm=G("cfsm"), fsun=G("fsun"),
-    fsci=G("fsci"), fscs=G("fscs"), cfsx=G("cfsx"),
-    stitle=G("stitle");
 
-if(stitle) stitle.textContent = STREAM_TITLE;
-var hls=null, ht=null, fsm=false, cfv=true;
-var retryCount = 0;
+var vid    = G("vid"),
+    pfsw   = G("pfsw"),
+    ov     = G("ov"),
+    ovt    = G("ovt"),
+    ovt2   = G("ovt2"),
+    cbar   = G("cbar"),
+    bpl    = G("bpl"),
+    plp    = G("plp"),
+    bmu    = G("bmu"),
+    mup    = G("mup"),
+    vol    = G("vol"),
+    ctime  = G("ctime"),
+    lat    = G("lat"),
+    ssel   = G("ssel"),
+    qsel   = G("qsel"),
+    bfs    = G("bfs"),
+    ice    = G("ice"),
+    icc    = G("icc"),
+    pbg    = G("pbg"),
+    pbuf   = G("pbuf"),
+    pp     = G("pp"),
+    pt     = G("pt"),
+    chatm  = G("chatm"),
+    ci     = G("ci"),
+    cs     = G("cs"),
+    uname  = G("uname"),
+    ntog   = G("ntog"),
+    ns     = G("ns"),
+    vc     = G("vc"),
+    pmeta  = G("pmeta"),
+    chatcol= G("chatcol"),
+    navbar = G("main-navbar"),
+    unmute = G("unmute-btn"),
+    stitle = G("stitle");
 
-// ── HLS latence ultra-faible ──────────────────
+if(stitle) stitle.textContent = TITLE;
+
+var hls = null, ht = null, fsm = false, retryCount = 0;
+
+// ── SON : gestion autoplay bloque ──────────────
+function doUnmute(){
+    vid.muted = false;
+    vid.volume = 1;
+    mup.setAttribute("d", IVO);
+    vol.value = 1;
+    unmute.style.display = "none";
+}
+
+// ── HLS — latence faible ──────────────────────
 function initP(){
-  var src = "/streams/"+SID+"/master.m3u8";
-  if(Hls.isSupported()){
-    if(hls){hls.destroy();hls=null;}
-    hls = new Hls({
-      // Latence minimale
-      lowLatencyMode: true,
-      liveSyncDurationCount: 1,
-      liveMaxLatencyDurationCount: 3,
-      maxLiveSyncPlaybackRate: 1.5,
-      // Buffer minimal pour demarrage rapide
-      maxBufferLength: 4,
-      maxMaxBufferLength: 8,
-      backBufferLength: 4,
-      // Demarrage immediat
-      startLevel: -1,
-      abrEwmaDefaultEstimate: 1000000,
-      // Retry agressif
-      manifestLoadingMaxRetry: 20,
-      manifestLoadingRetryDelay: 500,
-      levelLoadingMaxRetry: 20,
-      fragLoadingMaxRetry: 20,
-      fragLoadingRetryDelay: 500,
-      // Pas de saut de fragment
-      enableSoftwareAES: true,
-    });
-    hls.loadSource(src);
-    hls.attachMedia(vid);
-    hls.on(Hls.Events.MANIFEST_PARSED, function(e,d){
-      hideO();
-      qsel.innerHTML = '<option value="-1">Auto</option>';
-      d.levels.forEach(function(lv,i){
-        var o=document.createElement("option"); o.value=i;
-        o.textContent=lv.height+"p"; qsel.appendChild(o);
-      });
-      // Demarrer sans attendre
-      vid.muted = false;
-      vid.play().catch(function(){ vid.muted=true; vid.play().catch(function(){}); });
-      retryCount = 0;
-    });
-    hls.on(Hls.Events.ERROR, function(e,d){
-      if(d.fatal){
-        retryCount++;
-        ovt.textContent = "Reconnexion... ("+retryCount+")";
-        ovt2.textContent = "Le stream demarre, patientez...";
-        ov.style.display = "flex"; ov.style.opacity = "1";
-        var sp = ov.querySelector(".spin"); if(sp) sp.style.display="block";
-        setTimeout(tryI, Math.min(1000 * retryCount, 5000));
-      }
-    });
-    // Suivi latence temps reel
-    hls.on(Hls.Events.FRAG_BUFFERED, function(){
-      if(vid.buffered.length && vid.duration){
-        var edge = hls.liveSyncPosition || vid.duration;
-        var delay = edge - vid.currentTime;
-        if(delay > 0) lat.textContent = Math.round(delay)+"s";
-      }
-    });
-    qsel.onchange = function(){ hls.currentLevel = parseInt(qsel.value); };
-  } else if(vid.canPlayType("application/vnd.apple.mpegurl")){
-    vid.src = src;
-    vid.addEventListener("loadedmetadata", hideO, {once:true});
-    vid.play().catch(function(){});
-  }
+    var src = "/streams/"+SID+"/master.m3u8";
+    if(Hls.isSupported()){
+        if(hls){hls.destroy();hls=null;}
+        hls = new Hls({
+            lowLatencyMode: true,
+            liveSyncDurationCount: 1,
+            liveMaxLatencyDurationCount: 3,
+            maxLiveSyncPlaybackRate: 1.5,
+            maxBufferLength: 4,
+            maxMaxBufferLength: 8,
+            backBufferLength: 4,
+            startLevel: -1,
+            manifestLoadingMaxRetry: 20,
+            manifestLoadingRetryDelay: 500,
+            levelLoadingMaxRetry: 20,
+            fragLoadingMaxRetry: 20,
+            fragLoadingRetryDelay: 500,
+        });
+        hls.loadSource(src);
+        hls.attachMedia(vid);
+        hls.on(Hls.Events.MANIFEST_PARSED, function(e,d){
+            hideO();
+            qsel.innerHTML = '<option value="-1">Auto</option>';
+            d.levels.forEach(function(lv,i){
+                var o=document.createElement("option"); o.value=i;
+                o.textContent=lv.height+"p"; qsel.appendChild(o);
+            });
+            retryCount = 0;
+            // Tenter avec le son
+            vid.muted = false;
+            vid.volume = 1;
+            vid.play().then(function(){
+                unmute.style.display = "none";
+                mup.setAttribute("d", IVO);
+                vol.value = 1;
+            }).catch(function(){
+                // Autoplay bloque : jouer en muet, montrer bouton son
+                vid.muted = true;
+                vid.play().catch(function(){});
+                unmute.style.display = "flex";
+                mup.setAttribute("d", IMU);
+                vol.value = 0;
+            });
+        });
+        hls.on(Hls.Events.ERROR, function(e,d){
+            if(d.fatal){
+                retryCount++;
+                ovt.textContent  = "Reconnexion... ("+retryCount+")";
+                ovt2.textContent = "En attente du stream...";
+                ov.style.display = "flex"; ov.style.opacity = "1";
+                var sp = ov.querySelector(".spin"); if(sp) sp.style.display="block";
+                setTimeout(tryI, Math.min(1000*retryCount, 4000));
+            }
+        });
+        hls.on(Hls.Events.FRAG_BUFFERED, function(){
+            if(vid.buffered.length && vid.duration){
+                var edge = hls.liveSyncPosition || vid.duration;
+                var delay = edge - vid.currentTime;
+                if(delay > 0) lat.textContent = Math.round(delay)+"s de delai";
+                else          lat.textContent = "";
+            }
+        });
+        qsel.onchange = function(){ hls.currentLevel = parseInt(qsel.value); };
+    } else if(vid.canPlayType("application/vnd.apple.mpegurl")){
+        vid.src = src;
+        vid.addEventListener("loadedmetadata", hideO, {once:true});
+        vid.muted = false;
+        vid.play().catch(function(){ vid.muted=true; vid.play().catch(function(){}); unmute.style.display="flex"; });
+    }
 }
 
 function tryI(){
-  ovt.textContent = "Connexion au stream...";
-  ovt2.textContent = "Demarrage en cours...";
-  fetch("/streams/"+SID+"/master.m3u8", {cache:"no-store"})
+    ovt.textContent  = "Connexion au stream...";
+    ovt2.textContent = "Demarrage en cours...";
+    fetch("/streams/"+SID+"/master.m3u8", {cache:"no-store"})
     .then(function(r){
-      if(r.ok){ initP(); }
-      else {
-        ovt2.textContent = "En attente du stream...";
-        setTimeout(tryI, 1000);
-      }
+        if(r.ok){ initP(); }
+        else{ ovt2.textContent="En attente du stream..."; setTimeout(tryI, 1000); }
     }).catch(function(){ setTimeout(tryI, 1000); });
 }
 tryI();
 
 function hideO(){
-  ov.style.opacity = "0";
-  setTimeout(function(){ ov.style.display = "none"; }, 400);
+    ov.style.opacity = "0";
+    setTimeout(function(){ ov.style.display="none"; }, 400);
 }
 function showO(m){
-  ovt.textContent = m;
-  var s=ov.querySelector(".spin"); if(s) s.style.display="none";
-  ov.style.display = "flex"; ov.style.opacity = "1";
+    ovt.textContent = m; ovt2.textContent = "";
+    var sp=ov.querySelector(".spin"); if(sp) sp.style.display="none";
+    ov.style.display="flex"; ov.style.opacity="1";
 }
 
-// ── Controles ─────────────────────────────────
-var IPL="M6 4l15 8-15 8V4z", IPA="M6 19h4V5H6v14zm8-14v14h4V5h-4z",
-    IVO="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z",
-    IMU="M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06A8.99 8.99 0 0 0 17.73 19l2 2L21 19.73l-18-18z";
+// ── Icones SVG ────────────────────────────────
+var IPL = "M6 4l15 8-15 8V4z";
+var IPA = "M6 19h4V5H6v14zm8-14v14h4V5h-4z";
+var IVO = "M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z";
+var IMU = "M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06A8.99 8.99 0 0 0 17.73 19l2 2L21 19.73l-18-18z";
 
+// ── Controles ─────────────────────────────────
 bpl.onclick = function(){ vid.paused ? vid.play() : vid.pause(); };
-vid.addEventListener("play",  function(){ plp.setAttribute("d",IPA); });
-vid.addEventListener("pause", function(){ plp.setAttribute("d",IPL); });
+vid.addEventListener("play",  function(){ plp.setAttribute("d", IPA); });
+vid.addEventListener("pause", function(){ plp.setAttribute("d", IPL); });
 vid.addEventListener("dblclick", tFS);
 
 bmu.onclick = function(){
-  vid.muted = !vid.muted;
-  mup.setAttribute("d", vid.muted ? IMU : IVO);
-  vol.value = vid.muted ? 0 : vid.volume;
+    vid.muted = !vid.muted;
+    mup.setAttribute("d", vid.muted ? IMU : IVO);
+    vol.value = vid.muted ? 0 : Math.max(vid.volume, 0.1);
+    if(!vid.muted) unmute.style.display = "none";
 };
 vol.oninput = function(){
-  vid.volume = parseFloat(vol.value);
-  vid.muted = (vid.volume === 0);
-  mup.setAttribute("d", vid.muted ? IMU : IVO);
+    vid.volume = parseFloat(vol.value);
+    vid.muted  = (vid.volume === 0);
+    mup.setAttribute("d", vid.muted ? IMU : IVO);
+    if(!vid.muted) unmute.style.display = "none";
 };
 ssel.onchange = function(){ vid.playbackRate = parseFloat(ssel.value); };
 
 vid.addEventListener("timeupdate", function(){
-  var t = Math.floor(vid.currentTime);
-  ctime.textContent = String(Math.floor(t/60)).padStart(2,"0")+":"+String(t%60).padStart(2,"0");
-  if(vid.duration){
-    var p = (vid.currentTime/vid.duration)*100;
-    pp.style.width = p+"%"; pt.style.left = p+"%";
-    if(vid.buffered.length)
-      pbuf.style.width = (vid.buffered.end(vid.buffered.length-1)/vid.duration*100)+"%";
-  }
+    var t = Math.floor(vid.currentTime);
+    ctime.textContent = String(Math.floor(t/60)).padStart(2,"0")+":"+String(t%60).padStart(2,"0");
+    if(vid.duration){
+        var p = (vid.currentTime/vid.duration)*100;
+        pp.style.width = p+"%"; pt.style.left = p+"%";
+        if(vid.buffered.length)
+            pbuf.style.width = (vid.buffered.end(vid.buffered.length-1)/vid.duration*100)+"%";
+    }
 });
 pbg.onclick = function(e){
-  if(!vid.duration) return;
-  var r = pbg.getBoundingClientRect();
-  vid.currentTime = ((e.clientX-r.left)/r.width)*vid.duration;
-};
-bpip.onclick = function(){
-  if(document.pictureInPictureElement) document.exitPictureInPicture().catch(function(){});
-  else vid.requestPictureInPicture().catch(function(){});
+    if(!vid.duration) return;
+    var r = pbg.getBoundingClientRect();
+    vid.currentTime = ((e.clientX-r.left)/r.width)*vid.duration;
 };
 
-// ── VRAI PLEIN ECRAN NATIF ────────────────────
+// ── VRAI PLEIN ECRAN NATIF (sans chat) ────────
+// En fullscreen : seul pfsw (player + controls) est visible
+// navbar, pmeta, chatcol sont caches par CSS
 function tFS(){
-  if(!document.fullscreenElement && !document.webkitFullscreenElement) eFS();
-  else xFS();
+    if(!document.fullscreenElement && !document.webkitFullscreenElement) eFS();
+    else xFS();
 }
 function eFS(){
-  var el = pfsw;
-  var fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
-  if(fn) fn.call(el);
+    var fn = pfsw.requestFullscreen
+          || pfsw.webkitRequestFullscreen
+          || pfsw.mozRequestFullScreen
+          || pfsw.msRequestFullscreen;
+    if(fn) fn.call(pfsw);
 }
 function xFS(){
-  var fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
-  if(fn) fn.call(document);
+    var fn = document.exitFullscreen
+          || document.webkitExitFullscreen
+          || document.mozCancelFullScreen
+          || document.msExitFullscreen;
+    if(fn) fn.call(document);
 }
 function onFC(){
-  fsm = !!(document.fullscreenElement || document.webkitFullscreenElement);
-  if(fsm){
-    document.body.classList.add("is-fs");
-    pfsw.classList.add("fs-a");
-    ice.style.display = "none"; icc.style.display = "block";
-    fsun.value = uname.value;
-    cfs.style.display = cfv ? "flex" : "none";
-    sH();
-  } else {
-    document.body.classList.remove("is-fs");
-    pfsw.classList.remove("fs-a");
-    ice.style.display = "block"; icc.style.display = "none";
-    cfs.style.display = "none";
-    cbar.classList.remove("ch");
-    document.body.style.cursor = "";
-    cH();
-  }
+    fsm = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    if(fsm){
+        // Fullscreen : player occupe 100% de l'ecran, chat cache
+        document.body.classList.add("is-fs");
+        pfsw.classList.add("fs-a");
+        ice.style.display = "none";
+        icc.style.display = "block";
+        sH();
+    } else {
+        // Retour normal : tout reapparait
+        document.body.classList.remove("is-fs");
+        pfsw.classList.remove("fs-a");
+        ice.style.display = "block";
+        icc.style.display = "none";
+        cbar.classList.remove("ch");
+        document.body.style.cursor = "";
+        cH();
+    }
 }
 ["fullscreenchange","webkitfullscreenchange","mozfullscreenchange","MSFullscreenChange"]
-  .forEach(function(ev){ document.addEventListener(ev, onFC); });
+    .forEach(function(ev){ document.addEventListener(ev, onFC); });
 bfs.onclick = tFS;
 
 // Auto-hide controls en fullscreen
 function sH(){
-  cH();
-  cbar.classList.remove("ch"); document.body.style.cursor = "";
-  ht = setTimeout(function(){
-    if(fsm){ cbar.classList.add("ch"); document.body.style.cursor = "none"; }
-  }, 3000);
+    cH();
+    cbar.classList.remove("ch");
+    document.body.style.cursor = "";
+    ht = setTimeout(function(){
+        if(fsm){ cbar.classList.add("ch"); document.body.style.cursor="none"; }
+    }, 3000);
 }
 function cH(){ if(ht){ clearTimeout(ht); ht=null; } }
-pfsw.addEventListener("mousemove",    function(){ if(fsm) sH(); });
-cbar.addEventListener("mouseenter",   function(){ cH(); cbar.classList.remove("ch"); document.body.style.cursor=""; });
-cbar.addEventListener("mouseleave",   function(){ if(fsm) sH(); });
-cfs.addEventListener("mouseenter",    function(){ cH(); });
-cfs.addEventListener("mouseleave",    function(){ if(fsm) sH(); });
-
-// Toggle chat fullscreen
-function tCF(){
-  cfv = !cfv;
-  cfs.style.display = cfv ? "flex" : "none";
-  bcht.style.opacity = cfv ? "1" : "0.45";
-}
-bcht.onclick = tCF; cfsx.onclick = tCF;
+pfsw.addEventListener("mousemove",  function(){ if(fsm) sH(); });
+cbar.addEventListener("mouseenter", function(){ cH(); cbar.classList.remove("ch"); document.body.style.cursor=""; });
+cbar.addEventListener("mouseleave", function(){ if(fsm) sH(); });
 
 // Raccourcis clavier
 document.addEventListener("keydown", function(e){
-  var tag = document.activeElement.tagName;
-  if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT") return;
-  if(e.key==="f"||e.key==="F"){ e.preventDefault(); tFS(); }
-  else if(e.key===" "||e.key==="k"||e.key==="K"){ e.preventDefault(); vid.paused?vid.play():vid.pause(); }
-  else if(e.key==="m"||e.key==="M"){ e.preventDefault(); vid.muted=!vid.muted; mup.setAttribute("d",vid.muted?IMU:IVO); vol.value=vid.muted?0:vid.volume; }
-  else if(e.key==="ArrowUp"){ e.preventDefault(); vid.volume=Math.min(1,vid.volume+0.1); vol.value=vid.volume; }
-  else if(e.key==="ArrowDown"){ e.preventDefault(); vid.volume=Math.max(0,vid.volume-0.1); vol.value=vid.volume; }
-  else if((e.key==="c"||e.key==="C")&&fsm){ e.preventDefault(); tCF(); }
-  else if(e.key==="Escape"&&fsm){ e.preventDefault(); xFS(); }
+    var tag = document.activeElement.tagName;
+    if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT") return;
+    if(e.key==="f"||e.key==="F"){ e.preventDefault(); tFS(); }
+    else if(e.key===" "||e.key==="k"||e.key==="K"){ e.preventDefault(); vid.paused?vid.play():vid.pause(); }
+    else if(e.key==="m"||e.key==="M"){ e.preventDefault(); bmu.onclick(); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); vid.volume=Math.min(1,vid.volume+0.1); vol.value=vid.volume; if(!vid.muted) unmute.style.display="none"; }
+    else if(e.key==="ArrowDown"){ e.preventDefault(); vid.volume=Math.max(0,vid.volume-0.1); vol.value=vid.volume; }
+    else if(e.key==="Escape"&&fsm){ e.preventDefault(); xFS(); }
 });
 
 // ── Chat ──────────────────────────────────────
 uname.value = localStorage.getItem("sc_un") || "";
 socket.on("connect", function(){
-  socket.emit("join_stream", {stream_id:SID, username:uname.value.trim()||"Anonyme"});
+    socket.emit("join_stream", {stream_id:SID, username:uname.value.trim()||"Anonyme"});
 });
 socket.on("connect_error", function(e){ console.warn("Socket:", e.message); });
 socket.on("chat_history", function(d){
-  d.messages.forEach(function(m){ aM(chatm,m,false); });
-  chatm.scrollTop = chatm.scrollHeight;
-  d.messages.slice(-30).forEach(function(m){ aM(cfsm,m,false); });
-  cfsm.scrollTop = cfsm.scrollHeight;
+    d.messages.forEach(function(m){ aM(chatm,m,false); });
+    chatm.scrollTop = chatm.scrollHeight;
 });
 socket.on("new_chat_msg", function(m){
-  aM(chatm,m,true); chatm.scrollTop=chatm.scrollHeight;
-  aM(cfsm,m,true); cfsm.scrollTop=cfsm.scrollHeight;
-  if(ntog.checked && m.username!==(uname.value.trim()||"Anonyme")) pN(m.username,m.text);
+    aM(chatm,m,true); chatm.scrollTop=chatm.scrollHeight;
+    if(ntog.checked && m.username!==(uname.value.trim()||"Anonyme")) pN(m.username,m.text);
 });
 socket.on("system_msg", function(d){
-  [chatm,cfsm].forEach(function(el){
     var div=document.createElement("div"); div.className="smsg"; div.textContent=d.text;
-    el.appendChild(div); el.scrollTop=el.scrollHeight;
-  });
+    chatm.appendChild(div); chatm.scrollTop=chatm.scrollHeight;
 });
-socket.on("viewer_count", function(d){ vc.textContent = d.count+" viewers"; });
-socket.on("stream_ended", function(d){ if(d.stream_id===SID) showO("Stream termine"); });
+socket.on("viewer_count", function(d){ vc.textContent=d.count+" viewers"; });
+socket.on("stream_ended",  function(d){ if(d.stream_id===SID) showO("Stream termine"); });
 
 function aM(c,m,an){
-  var d=document.createElement("div"); d.className="cm"+(an?" cmn":"");
-  var t=new Date(m.ts*1000).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
-  d.innerHTML='<span class="ct">'+t+'</span><span class="cu">'+esc(m.username)+'</span><span class="cx">'+esc(m.text)+'</span>';
-  c.appendChild(d); while(c.children.length>200) c.removeChild(c.firstChild);
+    var d=document.createElement("div"); d.className="cm"+(an?" cmn":"");
+    var t=new Date(m.ts*1000).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+    d.innerHTML='<span class="ct">'+t+'</span><span class="cu">'+esc(m.username)+'</span><span class="cx">'+esc(m.text)+'</span>';
+    c.appendChild(d); while(c.children.length>200) c.removeChild(c.firstChild);
 }
 function esc(s){ var d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
 function sM(i,u){
-  var t=i.value.trim(); if(!t) return;
-  var n=u.value.trim()||"Anonyme";
-  localStorage.setItem("sc_un",n); uname.value=n; fsun.value=n;
-  socket.emit("chat_msg",{stream_id:SID,username:n,text:t}); i.value="";
+    var t=i.value.trim(); if(!t) return;
+    var n=u.value.trim()||"Anonyme";
+    localStorage.setItem("sc_un",n); uname.value=n;
+    socket.emit("chat_msg",{stream_id:SID,username:n,text:t}); i.value="";
 }
-cs.onclick  = function(){ sM(ci,uname); };
+cs.onclick = function(){ sM(ci,uname); };
 ci.addEventListener("keypress", function(e){ if(e.key==="Enter") sM(ci,uname); });
-fscs.onclick = function(){ sM(fsci,fsun); };
-fsci.addEventListener("keypress", function(e){ if(e.key==="Enter") sM(fsci,fsun); });
-uname.addEventListener("change", function(){ fsun.value=uname.value; });
-fsun.addEventListener("change",  function(){ uname.value=fsun.value; });
+uname.addEventListener("change", function(){ });
+
 function pN(u,t){
-  try{ ns.currentTime=0; ns.play().catch(function(){}); }catch(e){}
-  if("Notification"in window&&Notification.permission==="granted")
-    new Notification("Message de "+u,{body:t,silent:true});
+    try{ ns.currentTime=0; ns.play().catch(function(){}); }catch(e){}
+    if("Notification"in window&&Notification.permission==="granted")
+        new Notification("Message de "+u,{body:t,silent:true});
 }
 if("Notification"in window&&Notification.permission==="default") Notification.requestPermission();
 """
