@@ -11,3 +11,4 @@ services:
     healthCheckPath: /
     autoDeploy: true
     plan: starter
+    # PAS de startCommand : Render utilise le CMD du Dockerfile
