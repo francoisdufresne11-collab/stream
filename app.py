@@ -21,10 +21,11 @@ stream_viewers={}
 chat_history={}
 server_stats={"total_streams":0,"total_messages":0,"started":time.time()}
 _lock=threading.Lock()
-QUALITIES={"1080p":{"res":"1920x1080","vb":"5000k","ab":"192k"},
-           "720p": {"res":"1280x720", "vb":"2500k","ab":"128k"},
-           "480p": {"res":"854x480",  "vb":"1200k","ab":"96k"},
-           "360p": {"res":"640x360",  "vb":"600k", "ab":"64k"}}
+QUALITIES={
+    "1080p":{"res":"1920x1080","vb":"5000k","ab":"192k"},
+    "720p": {"res":"1280x720", "vb":"2500k","ab":"128k"},
+    "480p": {"res":"854x480",  "vb":"1200k","ab":"96k"},
+    "360p": {"res":"640x360",  "vb":"600k", "ab":"64k"}}
 
 def _uptime():
     s=int(time.time()-server_stats["started"])
@@ -35,12 +36,12 @@ def _master(sid):
     sdir=STREAMS_DIR/sid
     bw={"1080p":5200000,"720p":2600000,"480p":1300000,"360p":650000}
     rs={"1080p":"1920x1080","720p":"1280x720","480p":"854x480","360p":"640x360"}
-    lines=["#EXTM3U"]
+    lines2=["#EXTM3U"]
     for q in QUALITIES:
         if (sdir/(q+".m3u8")).exists():
-            lines.append("#EXT-X-STREAM-INF:BANDWIDTH="+str(bw[q])+",RESOLUTION="+rs[q]+",NAME="+q)
-            lines.append(q+".m3u8")
-    if len(lines)>1:(sdir/"master.m3u8").write_text("\n".join(lines)+"\n",encoding="utf-8")
+            lines2.append("#EXT-X-STREAM-INF:BANDWIDTH="+str(bw[q])+",RESOLUTION="+rs[q]+",NAME="+q)
+            lines2.append(q+".m3u8")
+    if len(lines2)>1:(sdir/"master.m3u8").write_text("\n".join(lines2)+"\n",encoding="utf-8")
 
 def _cleanup(sid):
     with _lock:
@@ -83,25 +84,41 @@ BASE_TPL="""<!DOCTYPE html>
 
 @app.errorhandler(404)
 def e404(e):
-    return "<!DOCTYPE html><html><head><meta charset=UTF-8><title>404</title><style>body{font-family:sans-serif;background:#0f0f23;color:#e0e0e0;text-align:center;padding:80px}h1{font-size:5em;color:#a78bfa}a{color:#a78bfa}</style></head><body><h1>404</h1><p>Page introuvable</p><a href='/'>Retour</a></body></html>",404
+    h='<!DOCTYPE html><html><head><meta charset=UTF-8><title>404</title>'
+    h+='<style>body{font-family:sans-serif;background:#0f0f23;color:#e0e0e0;text-align:center;padding:80px}'
+    h+='h1{font-size:5em;color:#a78bfa}a{color:#a78bfa}</style></head>'
+    h+='<body><h1>404</h1><p>Page introuvable</p><a href="/">Retour</a></body></html>'
+    return h,404
 
 @app.errorhandler(500)
 def e500(e):
-    return "<!DOCTYPE html><html><head><meta charset=UTF-8><title>500</title><style>body{font-family:sans-serif;background:#0f0f23;color:#e0e0e0;text-align:center;padding:80px}h1{font-size:5em;color:#ef4444}a{color:#a78bfa}</style></head><body><h1>500</h1><p>Erreur interne</p><a href='/'>Retour</a></body></html>",500
+    h='<!DOCTYPE html><html><head><meta charset=UTF-8><title>500</title>'
+    h+='<style>body{font-family:sans-serif;background:#0f0f23;color:#e0e0e0;text-align:center;padding:80px}'
+    h+='h1{font-size:5em;color:#ef4444}a{color:#a78bfa}</style></head>'
+    h+='<body><h1>500</h1><p>Erreur interne</p><a href="/">Retour</a></body></html>'
+    return h,500
 
 @app.route("/")
 def index():
-    rows=""
+    rows=[]
     for s in active_streams.values():
-        rows+='<a href="/watch/'+s["id"]+'" class="card" data-id="'+s["id"]+'">
-        rows+='<div class="thumb"><span class="lb">LIVE</span><div class="tov"><span class="pi">&#9654;</span></div></div>'
-        rows+='<div class="cinfo"><h3>'+s["title"]+'</h3><span id="vc-'+s["id"]+'">'+str(s["viewers"])+' viewers</span></div></a>'
+        sid2=s["id"]
+        row='<a href="/watch/'+sid2+'" class="card" data-id="'+sid2+'">'
+        row+='<div class="thumb"><span class="lb">LIVE</span>'
+        row+='<div class="tov"><span class="pi">&#9654;</span></div></div>'
+        row+='<div class="cinfo"><h3>'+s["title"]+'</h3>'
+        row+='<span id="vc-'+sid2+'">'+str(s["viewers"])+' viewers</span></div></a>'
+        rows.append(row)
     es=' style="display:none"' if active_streams else ""
     c='<div class="home"><h1>Streams en direct</h1><div id="grid" class="grid">'
     c+='<div id="empty" class="empty-home"'+es+'>'
-    c+='<p>Aucun stream en direct...</p><a href="/broadcast" class="btn btn-p">Commencer a diffuser</a></div>'
-    c+=rows+"</div></div>"
-    js="""<script>
+    c+='<p>Aucun stream en direct...</p>'
+    c+='<a href="/broadcast" class="btn btn-p">Commencer a diffuser</a></div>'
+    c+=''.join(rows)+'</div></div>'
+    js=INDEX_JS
+    return _page("StreamCaster",c,js)
+
+INDEX_JS="""<script>
 var socket=io({transports:["polling","websocket"],upgrade:true});
 function load(){
   fetch("/api/streams").then(function(r){return r.json();}).then(function(st){
@@ -118,7 +135,6 @@ function load(){
 load();setInterval(load,5000);
 socket.on("stream_created",load);socket.on("stream_ended",load);
 </script>"""
-    return _page("StreamCaster",c,js)
 
 @app.route("/broadcast")
 def broadcast_page():
@@ -134,7 +150,10 @@ def broadcast_page():
     c+='<li>Cliquez sur Demarrer le Stream</li></ol></div></div>'
     c+='<div class="icard"><h3>Streams actifs</h3><div id="asl"><p>Chargement...</p></div>'
     c+='<h3 style="margin-top:24px">Stats</h3><div id="lstats" class="ls-grid"></div></div></div></div>'
-    js="""<script>
+    js=BROADCAST_JS
+    return _page("Diffuser",c,js)
+
+BROADCAST_JS="""<script>
 document.getElementById("surl").textContent=window.location.origin;
 document.getElementById("copybtn").onclick=function(){
   navigator.clipboard.writeText(document.getElementById("surl").textContent)
@@ -153,14 +172,13 @@ function loadBc(){
   }).catch(function(){});}
 loadBc();setInterval(loadBc,5000);
 </script>"""
-    return _page("Diffuser",c,js)
 
 @app.route("/watch/<sid>")
 def watch_page(sid):
     s=active_streams.get(sid)
     if not s:return redirect(url_for("index"))
-    t2=s["title"].replace("\\","\\\\").replace('"','\\"')
-    js="<script>"+WATCH_JS.replace("__SID__",sid).replace("__TITLE__",t2)+"</script>"
+    safe_title=s["title"].replace("\\","\\\\").replace('"','\\"')
+    js="<script>"+WATCH_JS.replace("__SID__",sid).replace("__TITLE__",safe_title)+"</script>"
     return _page(s["title"],WATCH_HTML,js)
 
 @app.route("/admin",methods=["GET","POST"])
@@ -177,26 +195,22 @@ def admin():
         c+='<button type="submit" class="btn btn-p" style="width:100%;margin-top:8px">Connexion</button>'
         c+='</form></div></div>'
         return _page("Admin",c)
-    rows=""
+    rows=[]
     for s in active_streams.values():
         sid2=s["id"]
-        rows+="<tr>"
-        rows+="<td><code>"+sid2+"</code></td>"
-        rows+="<td>"+s["title"]+"</td>"
-        rows+="<td>"+str(s["viewers"])+"</td>"
-        rows+="<td>"+_ts(s["created"])+"</td>"
-        rows+="<td>"
-        rows+='<a href="/watch/'+sid2+'" class="bsm bb" target="_blank">Voir</a> '
-        # NOTE: onsubmit utilise guillemets doubles pour confirm()
-        rows+='<form method="POST" action="/admin/kick/'+sid2+'" style="display:inline" '
-        rows+='onsubmit="return confirm(&quot;Arreter ce stream ?&quot;)">'
-        rows+='<button class="bsm br">Stop</button></form>'
-        rows+="</td></tr>"
-    tbl=""
-    if rows:
-        tbl='<table class="adm-tbl"><thead><tr><th>ID</th><th>Titre</th><th>Viewers</th><th>Debut</th><th>Actions</th></tr></thead><tbody>'+rows+"</tbody></table>"
-    else:
-        tbl='<div class="empty">Aucun stream actif</div>'
+        row="<tr>"
+        row+="<td><code>"+sid2+"</code></td>"
+        row+="<td>"+s["title"]+"</td>"
+        row+="<td>"+str(s["viewers"])+"</td>"
+        row+="<td>"+_ts(s["created"])+"</td>"
+        row+="<td>"
+        row+='<a href="/watch/'+sid2+'" class="bsm bb" target="_blank">Voir</a> '
+        row+='<form method="POST" action="/admin/kick/'+sid2+'" style="display:inline"'
+        row+=' onsubmit="return confirm(&quot;Arreter ?&quot;)">'
+        row+='<button class="bsm br">Stop</button></form>'
+        row+="</td></tr>"
+        rows.append(row)
+    tbl='<table class="adm-tbl"><thead><tr><th>ID</th><th>Titre</th><th>Viewers</th><th>Debut</th><th>Actions</th></tr></thead><tbody>'+''.join(rows)+'</tbody></table>' if rows else '<div class="empty">Aucun stream actif</div>'
     tv=sum(len(v) for v in stream_viewers.values())
     c='<div class="adm-wrap">'
     c+='<div class="adm-top"><h1>Dashboard Admin</h1><a href="/admin/logout" class="btn btn-d">Deconnexion</a></div>'
@@ -208,10 +222,9 @@ def admin():
     c+='<div class="sc"><div class="si">Up</div><div class="sv sm">'+_uptime()+'</div><div class="sl2">Uptime</div></div>'
     c+='</div><div class="adm-sec"><h2>Streams en direct</h2>'+tbl+'</div>'
     c+='<div class="adm-sec"><h2>Config</h2><div class="cfg-grid">'
+    c+='<div class="ci"><span class="ck">Python</span><code>3.11-slim Docker</code></div>'
     c+='<div class="ci"><span class="ck">Worker</span><code>gthread</code></div>'
-    c+='<div class="ci"><span class="ck">async_mode</span><code>threading</code></div>'
     c+='<div class="ci"><span class="ck">FullScreen</span><code>F / double-clic</code></div>'
-    c+='<div class="ci"><span class="ck">Son</span><code>Autoplay + unmute</code></div>'
     c+='</div></div><p class="adm-ref">Actualisation toutes les 10s</p></div>'
     return _page("Dashboard Admin",c,head='<meta http-equiv="refresh" content="10">')
 
@@ -334,8 +347,7 @@ WATCH_HTML="""
     <div class="pfsw" id="pfsw">
       <video id="vid" autoplay playsinline></video>
       <div class="ov" id="ov">
-        <div class="ov-in">
-          <div class="spin"></div>
+        <div class="ov-in"><div class="spin"></div>
           <p id="ovt">Connexion au stream...</p>
           <p id="ovt2" style="font-size:.82em;margin-top:6px;opacity:.55">Demarrage en cours...</p>
         </div>
@@ -345,13 +357,8 @@ WATCH_HTML="""
       </div>
       <div class="cbar" id="cbar">
         <div class="prow">
-          <div class="pbg" id="pbg">
-            <div class="pbuf" id="pbuf"></div>
-            <div class="pp" id="pp"></div>
-            <div class="pt" id="pt"></div>
-          </div>
-          <span class="lpill">LIVE</span>
-          <span class="lat-badge" id="lat"></span>
+          <div class="pbg" id="pbg"><div class="pbuf" id="pbuf"></div><div class="pp" id="pp"></div><div class="pt" id="pt"></div></div>
+          <span class="lpill">LIVE</span><span class="lat-badge" id="lat"></span>
         </div>
         <div class="crow">
           <div class="cl">
@@ -363,7 +370,10 @@ WATCH_HTML="""
           <div class="cr">
             <select class="csel" id="ssel"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option></select>
             <select class="csel" id="qsel"><option value="-1">Auto</option></select>
-            <button class="cb cbfs" id="bfs"><svg viewBox="0 0 24 24" id="ice"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg><svg viewBox="0 0 24 24" id="icc" style="display:none"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg></button>
+            <button class="cb cbfs" id="bfs">
+              <svg viewBox="0 0 24 24" id="ice"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+              <svg viewBox="0 0 24 24" id="icc" style="display:none"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+            </button>
           </div>
         </div>
       </div>
@@ -407,23 +417,19 @@ function initP(){
   if(Hls.isSupported()){
     if(hls){hls.destroy();hls=null;}
     hls=new Hls({lowLatencyMode:true,liveSyncDurationCount:1,liveMaxLatencyDurationCount:3,
-      maxLiveSyncPlaybackRate:1.5,maxBufferLength:4,maxMaxBufferLength:8,backBufferLength:4,
-      startLevel:-1,manifestLoadingMaxRetry:20,manifestLoadingRetryDelay:500,
-      levelLoadingMaxRetry:20,fragLoadingMaxRetry:20,fragLoadingRetryDelay:500});
+      maxLiveSyncPlaybackRate:1.5,maxBufferLength:4,maxMaxBufferLength:8,backBufferLength:4,startLevel:-1,
+      manifestLoadingMaxRetry:20,manifestLoadingRetryDelay:500,fragLoadingMaxRetry:20,fragLoadingRetryDelay:500});
     hls.loadSource(src);hls.attachMedia(vid);
     hls.on(Hls.Events.MANIFEST_PARSED,function(e,d){
       hideO();qsel.innerHTML='<option value="-1">Auto</option>';
       d.levels.forEach(function(lv,i){var o=document.createElement("option");o.value=i;o.textContent=lv.height+"p";qsel.appendChild(o);});
-      retryCount=0;
-      vid.muted=false;vid.volume=1;
+      retryCount=0;vid.muted=false;vid.volume=1;
       vid.play().then(function(){unmute.style.display="none";mup.setAttribute("d",IVO);vol.value=1;
       }).catch(function(){vid.muted=true;vid.play().catch(function(){});unmute.style.display="flex";mup.setAttribute("d",IMU);vol.value=0;});
     });
     hls.on(Hls.Events.ERROR,function(e,d){
       if(d.fatal){retryCount++;ovt.textContent="Reconnexion... ("+retryCount+")";
-        ov.style.display="flex";ov.style.opacity="1";
-        var sp=ov.querySelector(".spin");if(sp)sp.style.display="block";
-        setTimeout(tryI,Math.min(1000*retryCount,4000));}
+        ov.style.display="flex";ov.style.opacity="1";setTimeout(tryI,Math.min(1000*retryCount,4000));}
     });
     hls.on(Hls.Events.FRAG_BUFFERED,function(){
       if(vid.buffered.length&&vid.duration){var edge=hls.liveSyncPosition||vid.duration;
@@ -435,10 +441,10 @@ function initP(){
   }
 }
 function tryI(){
-  ovt.textContent="Connexion au stream...";ovt2.textContent="Demarrage en cours...";
+  ovt.textContent="Connexion...";ovt2.textContent="En attente du stream...";
   fetch("/streams/"+SID+"/master.m3u8",{cache:"no-store"})
-  .then(function(r){if(r.ok)initP();else{ovt2.textContent="En attente...";setTimeout(tryI,1000);}
-  }).catch(function(){setTimeout(tryI,1000);});
+  .then(function(r){if(r.ok)initP();else setTimeout(tryI,1000);})
+  .catch(function(){setTimeout(tryI,1000);});
 }
 tryI();
 function hideO(){ov.style.opacity="0";setTimeout(function(){ov.style.display="none";},400);}
